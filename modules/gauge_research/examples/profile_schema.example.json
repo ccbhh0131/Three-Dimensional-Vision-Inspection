@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "profileId": "synthetic-demo",
+  "unit": "demo-unit",
+  "rangeMin": 0.0,
+  "rangeMax": 100.0,
+  "scaleStartAngleDeg": 180.0,
+  "scaleEndAngleDeg": 0.0,
+  "clockwise": true,
+  "source": "synthetic-example-only"
+}

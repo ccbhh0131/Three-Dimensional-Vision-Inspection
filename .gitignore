@@ -1,0 +1,65 @@
+# Build and IDE output
+build/
+out/
+app/build/
+.vs/
+.idea/
+*.suo
+*.user
+*.VC.db
+
+# Local configuration
+CMakeUserPresets.json
+app/CMakeUserPresets.json
+*.local
+*.env
+
+# Logs, databases, temporary files and Python caches
+*.log
+logs/
+runtime_logs/
+cache/
+tmp/
+temp/
+*.db
+*.sqlite
+*.sqlite3
+__pycache__/
+*.pyc
+*.pyo
+
+# Data, models and training output
+datasets/
+data/
+runs/
+weights/
+models/
+*.pt
+*.pth
+*.onnx
+*.engine
+
+# Local project workspaces and external runtime/source
+25量程/
+gauge_stage4a/
+P0/
+workspace_test/
+third_party_eval/
+colmap-x64-windows-cuda*/
+_temp/
+
+# Explicitly keep public source and documentation trees visible
+!app/src/
+!app/src/**
+!app/tests/
+!app/tests/**
+!docs/
+!docs/**
+!modules/
+!modules/**
+!examples/
+!examples/**
+!tests/
+!tests/**
+!scripts/
+!scripts/**

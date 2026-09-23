@@ -1,0 +1,190 @@
+find_package(Qt6 6.5 REQUIRED COMPONENTS Test)
+
+add_executable(test_project_manifest
+    test_project_manifest.cpp
+    ../src/core/assets/AssetRecord.cpp
+    ../src/core/assets/AssetRecord.h
+    ../src/core/project/ProjectManifest.cpp
+    ../src/core/project/ProjectManifest.h
+    ../src/core/reconstruction/ReconstructionTask.cpp
+    ../src/core/reconstruction/ReconstructionTask.h
+)
+target_compile_features(test_project_manifest PRIVATE cxx_std_17)
+if(MSVC)
+    target_compile_options(test_project_manifest PRIVATE /FS)
+endif()
+target_include_directories(test_project_manifest PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
+target_link_libraries(test_project_manifest PRIVATE Qt6::Core Qt6::Test)
+add_test(NAME project_manifest COMMAND test_project_manifest)
+
+add_executable(test_colmap_backend
+    test_colmap_backend.cpp
+    ../src/backend/ColmapBackend.cpp
+    ../src/backend/ColmapBackend.h
+    ../src/backend/BackendProbeResult.h
+    ../src/backend/ReconstructionBackend.h
+    ../src/core/process/ProcessRunner.cpp
+    ../src/core/process/ProcessRunner.h
+)
+target_compile_features(test_colmap_backend PRIVATE cxx_std_17)
+if(MSVC)
+    target_compile_options(test_colmap_backend PRIVATE /FS)
+endif()
+target_include_directories(test_colmap_backend PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
+target_link_libraries(test_colmap_backend PRIVATE Qt6::Core Qt6::Test)
+add_test(NAME colmap_backend COMMAND test_colmap_backend)
+
+add_executable(test_engine_locator
+    test_engine_locator.cpp
+    ../src/backend/ReconstructionEngineLocator.cpp
+    ../src/backend/ReconstructionEngineLocator.h
+)
+target_compile_features(test_engine_locator PRIVATE cxx_std_17)
+if(MSVC)
+    target_compile_options(test_engine_locator PRIVATE /FS)
+endif()
+target_include_directories(test_engine_locator PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
+target_link_libraries(test_engine_locator PRIVATE Qt6::Core Qt6::Test)
+add_test(NAME engine_locator COMMAND test_engine_locator)
+
+add_executable(test_project_manager
+    test_project_manager.cpp
+    ../src/core/assets/AssetRecord.cpp
+    ../src/core/assets/AssetRecord.h
+    ../src/core/project/ProjectManager.cpp
+    ../src/core/project/ProjectManager.h
+    ../src/core/project/ProjectManifest.cpp
+    ../src/core/project/ProjectManifest.h
+    ../src/core/reconstruction/ReconstructionTask.cpp
+    ../src/core/reconstruction/ReconstructionTask.h
+)
+target_compile_features(test_project_manager PRIVATE cxx_std_17)
+if(MSVC)
+    target_compile_options(test_project_manager PRIVATE /FS)
+endif()
+target_include_directories(test_project_manager PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
+target_link_libraries(test_project_manager PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
+add_test(NAME project_manager COMMAND test_project_manager)
+
+add_executable(test_main_window
+    test_main_window.cpp
+    ../src/app/MainWindow.cpp
+    ../src/app/MainWindow.h
+    ../src/core/project/ProjectManager.cpp
+    ../src/core/project/ProjectManager.h
+    ../src/core/project/ProjectManifest.cpp
+    ../src/core/project/ProjectManifest.h
+    ../src/core/assets/AssetRecord.cpp
+    ../src/core/assets/AssetRecord.h
+    ../src/core/assets/ThumbnailCache.cpp
+    ../src/core/assets/ThumbnailCache.h
+    ../src/core/process/ProcessRunner.cpp
+    ../src/core/process/ProcessRunner.h
+    ../src/core/reconstruction/ReconstructionArtifactValidator.cpp
+    ../src/core/reconstruction/ReconstructionArtifactValidator.h
+    ../src/core/reconstruction/ReconstructionController.cpp
+    ../src/core/reconstruction/ReconstructionController.h
+    ../src/core/reconstruction/ReconstructionTask.cpp
+    ../src/core/reconstruction/ReconstructionTask.h
+    ../src/core/reconstruction/ReconstructionWorkspace.cpp
+    ../src/core/reconstruction/ReconstructionWorkspace.h
+    ../src/backend/BackendProbeResult.h
+    ../src/backend/ReconstructionBackend.h
+    ../src/backend/ColmapBackend.cpp
+    ../src/backend/ColmapBackend.h
+    ../src/backend/ReconstructionEngineLocator.cpp
+    ../src/backend/ReconstructionEngineLocator.h
+    ../src/widgets/BackendPanel.cpp
+    ../src/widgets/BackendPanel.h
+    ../src/widgets/DeveloperSettingsDialog.cpp
+    ../src/widgets/DeveloperSettingsDialog.h
+    ../src/widgets/ImageAssetModel.cpp
+    ../src/widgets/ImageAssetModel.h
+    ../src/widgets/ImageBrowserPanel.cpp
+    ../src/widgets/ImageBrowserPanel.h
+    ../src/widgets/ImagePreviewWidget.cpp
+    ../src/widgets/ImagePreviewWidget.h
+    ../src/widgets/LogPanel.cpp
+    ../src/widgets/LogPanel.h
+    ../src/widgets/ProjectPanel.cpp
+    ../src/widgets/ProjectPanel.h
+    ../src/widgets/ReconstructionPanel.cpp
+    ../src/widgets/ReconstructionPanel.h
+)
+target_compile_features(test_main_window PRIVATE cxx_std_17)
+if(MSVC)
+    target_compile_options(test_main_window PRIVATE /FS)
+endif()
+target_include_directories(test_main_window PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
+target_link_libraries(test_main_window PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test)
+add_test(NAME main_window_probe COMMAND test_main_window)
+
+add_executable(test_image_assets
+    test_image_assets.cpp
+    ../src/backend/BackendProbeResult.h
+    ../src/backend/ReconstructionBackend.h
+    ../src/backend/ColmapBackend.cpp
+    ../src/backend/ColmapBackend.h
+    ../src/core/assets/AssetRecord.cpp
+    ../src/core/assets/AssetRecord.h
+    ../src/core/assets/ThumbnailCache.cpp
+    ../src/core/assets/ThumbnailCache.h
+    ../src/core/project/ProjectManifest.cpp
+    ../src/core/project/ProjectManifest.h
+    ../src/core/project/ProjectManager.cpp
+    ../src/core/project/ProjectManager.h
+    ../src/core/process/ProcessRunner.cpp
+    ../src/core/process/ProcessRunner.h
+    ../src/core/reconstruction/ReconstructionArtifactValidator.cpp
+    ../src/core/reconstruction/ReconstructionArtifactValidator.h
+    ../src/core/reconstruction/ReconstructionController.cpp
+    ../src/core/reconstruction/ReconstructionController.h
+    ../src/core/reconstruction/ReconstructionTask.cpp
+    ../src/core/reconstruction/ReconstructionTask.h
+    ../src/core/reconstruction/ReconstructionWorkspace.cpp
+    ../src/core/reconstruction/ReconstructionWorkspace.h
+    ../src/widgets/ImageAssetModel.cpp
+    ../src/widgets/ImageAssetModel.h
+    ../src/widgets/ImageBrowserPanel.cpp
+    ../src/widgets/ImageBrowserPanel.h
+    ../src/widgets/ImagePreviewWidget.cpp
+    ../src/widgets/ImagePreviewWidget.h
+)
+target_compile_features(test_image_assets PRIVATE cxx_std_17)
+if(MSVC)
+    target_compile_options(test_image_assets PRIVATE /FS)
+endif()
+target_include_directories(test_image_assets PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
+target_link_libraries(test_image_assets PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test)
+add_test(NAME image_assets COMMAND test_image_assets)
+
+add_executable(test_reconstruction
+    test_reconstruction.cpp
+    ../src/backend/BackendProbeResult.h
+    ../src/backend/ReconstructionBackend.h
+    ../src/backend/ColmapBackend.cpp
+    ../src/backend/ColmapBackend.h
+    ../src/core/assets/AssetRecord.cpp
+    ../src/core/assets/AssetRecord.h
+    ../src/core/process/ProcessRunner.cpp
+    ../src/core/process/ProcessRunner.h
+    ../src/core/project/ProjectManager.cpp
+    ../src/core/project/ProjectManager.h
+    ../src/core/project/ProjectManifest.cpp
+    ../src/core/project/ProjectManifest.h
+    ../src/core/reconstruction/ReconstructionArtifactValidator.cpp
+    ../src/core/reconstruction/ReconstructionArtifactValidator.h
+    ../src/core/reconstruction/ReconstructionController.cpp
+    ../src/core/reconstruction/ReconstructionController.h
+    ../src/core/reconstruction/ReconstructionTask.cpp
+    ../src/core/reconstruction/ReconstructionTask.h
+    ../src/core/reconstruction/ReconstructionWorkspace.cpp
+    ../src/core/reconstruction/ReconstructionWorkspace.h
+)
+target_compile_features(test_reconstruction PRIVATE cxx_std_17)
+if(MSVC)
+    target_compile_options(test_reconstruction PRIVATE /FS)
+endif()
+target_include_directories(test_reconstruction PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
+target_link_libraries(test_reconstruction PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
+add_test(NAME reconstruction COMMAND test_reconstruction)

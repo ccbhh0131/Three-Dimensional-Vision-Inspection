@@ -356,7 +356,8 @@ void ImageAssetsTest::templeRingSmokeWhenConfigured()
     }
 
     const QString workspaceParent = qEnvironmentVariable("VISION3D_STAGE2_WORKSPACE_PARENT",
-                                                          QDir::tempPath());
+                                                          QDir(QDir::tempPath()).filePath(
+                                                              QStringLiteral("vision3d_stage2_workspace")));
     const QString projectName = QStringLiteral("TempleImageDemo");
     const QString projectDirectory = QDir(workspaceParent).filePath(projectName);
     if (QFileInfo::exists(QDir(projectDirectory).filePath(QStringLiteral("project.json")))) {
@@ -461,7 +462,7 @@ void ImageAssetsTest::templeRingSmokeWhenConfigured()
 
     const QString colmapRoot = qEnvironmentVariable("VISION3D_COLMAP_ROOT");
     if (colmapRoot.isEmpty()) {
-        QSKIP("External COLMAP smoke is opt-in; set VISION3D_COLMAP_ROOT to run it.");
+        QSKIP("Set VISION3D_COLMAP_ROOT to run the configured COLMAP portion of this opt-in smoke.");
     }
     vision3d::ColmapBackend backend;
     const vision3d::BackendProbeResult backendResult = backend.probe(colmapRoot);
@@ -487,7 +488,8 @@ void ImageAssetsTest::templeRingPreviewClicksWhenConfigured()
     }
 
     const QString workspaceParent = qEnvironmentVariable("VISION3D_STAGE2_WORKSPACE_PARENT",
-                                                          QDir::tempPath());
+                                                          QDir(QDir::tempPath()).filePath(
+                                                              QStringLiteral("vision3d_stage2_workspace")));
     const QString projectDirectory = QDir(workspaceParent).filePath(
         QStringLiteral("TempleImageDemo"));
     if (!QFileInfo::exists(QDir(projectDirectory).filePath(QStringLiteral("project.json")))) {

@@ -21,7 +21,7 @@ void ColmapBackendTest::missingDirectoryIsUnavailable()
 {
     vision3d::ColmapBackend backend;
     const vision3d::BackendProbeResult result =
-        backend.probe(QStringLiteral("definitely-not-a-colmap-directory"));
+        backend.probe(QStringLiteral("Z:/definitely-not-a-colmap-directory"));
     QVERIFY(!result.available);
     QVERIFY(result.message.contains(QStringLiteral("根目录不存在")));
 }

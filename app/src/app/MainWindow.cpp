@@ -2,14 +2,17 @@
 
 #include "widgets/BackendPanel.h"
 #include "backend/ReconstructionEngineLocator.h"
+#include "core/mesh/PlyMeshLoader.h"
 #include "widgets/DeveloperSettingsDialog.h"
 #include "widgets/ImageBrowserPanel.h"
 #include "widgets/ImagePreviewWidget.h"
 #include "widgets/LogPanel.h"
+#include "widgets/ModelViewerWidget.h"
 #include "widgets/ProjectPanel.h"
 #include "widgets/ReconstructionPanel.h"
 
 #include <QAction>
+#include <QApplication>
 #include <QDir>
 #include <QFileDialog>
 #include <QImageReader>
@@ -20,12 +23,15 @@
 #include <QMenuBar>
 #include <QRegularExpression>
 #include <QSplitter>
+#include <QStackedWidget>
 #include <QStatusBar>
 #include <QTimer>
 #include <QToolBar>
 #include <QElapsedTimer>
 #include <QVBoxLayout>
 #include <QWidget>
+
+#include <utility>
 
 namespace vision3d {
 
@@ -72,6 +78,8 @@ MainWindow::MainWindow(QWidget* parent)
     , m_projectPanel(new ProjectPanel(this))
     , m_imageBrowserPanel(new ImageBrowserPanel(this))
     , m_imagePreviewWidget(new ImagePreviewWidget(this))
+    , m_previewStack(new QStackedWidget(this))
+    , m_modelViewerWidget(new ModelViewerWidget(this))
     , m_backendPanel(new BackendPanel(this))
     , m_reconstructionPanel(new ReconstructionPanel(this))
     , m_logPanel(new LogPanel(this))
@@ -99,11 +107,18 @@ MainWindow::MainWindow(QWidget* parent)
 
     auto* topSplitter = new QSplitter(Qt::Horizontal, this);
     topSplitter->addWidget(leftPanel);
-    topSplitter->addWidget(m_imagePreviewWidget);
+    m_previewStack->setObjectName(QStringLiteral("centralPreviewStack"));
+    m_imagePreviewWidget->setObjectName(QStringLiteral("imagePreviewWidget"));
+    m_modelViewerWidget->setObjectName(QStringLiteral("modelViewerWidget"));
+    m_previewStack->addWidget(m_imagePreviewWidget);
+    m_previewStack->addWidget(m_modelViewerWidget);
+    m_previewStack->setCurrentWidget(m_imagePreviewWidget);
+    topSplitter->addWidget(m_previewStack);
     topSplitter->addWidget(rightPanel);
     topSplitter->setStretchFactor(0, 1);
     topSplitter->setStretchFactor(1, 1);
     topSplitter->setStretchFactor(2, 2);
+    topSplitter->setSizes({240, 560, 320});
 
     auto* centralWidget = new QWidget(this);
     auto* centralLayout = new QVBoxLayout(centralWidget);
@@ -166,6 +181,34 @@ MainWindow::MainWindow(QWidget* parent)
             &ReconstructionPanel::cancelRequested,
             this,
             &MainWindow::cancelReconstruction);
+    connect(m_reconstructionPanel,
+            &ReconstructionPanel::viewModelRequested,
+            this,
+            &MainWindow::open3DModel);
+    connect(m_reconstructionPanel,
+            &ReconstructionPanel::resetViewRequested,
+            this,
+            &MainWindow::resetViewer);
+    connect(m_modelViewerWidget,
+            &ModelViewerWidget::surfacePicked,
+            this,
+            &MainWindow::onSurfacePicked);
+    connect(m_modelViewerWidget,
+            &ModelViewerWidget::surfaceMissed,
+            this,
+            &MainWindow::onSurfaceMissed);
+    connect(m_modelViewerWidget,
+            &ModelViewerWidget::markerSelected,
+            this,
+            &MainWindow::onMarkerSelected);
+    connect(m_reconstructionPanel,
+            &ReconstructionPanel::addMarkerRequested,
+            this,
+            &MainWindow::addDeviceMarker);
+    connect(m_reconstructionPanel,
+            &ReconstructionPanel::deleteMarkerRequested,
+            this,
+            &MainWindow::deleteDeviceMarker);
     connect(m_reconstructionController,
             &ReconstructionController::taskChanged,
             this,
@@ -192,6 +235,7 @@ void MainWindow::createActions()
     auto* fileMenu = menuBar()->addMenu(QStringLiteral("文件"));
     QAction* newProjectAction = fileMenu->addAction(QStringLiteral("新建项目"));
     QAction* openProjectAction = fileMenu->addAction(QStringLiteral("打开项目"));
+    QAction* closeProjectAction = fileMenu->addAction(QStringLiteral("关闭项目"));
     m_importImagesAction = fileMenu->addAction(QStringLiteral("导入图像"));
     m_removeImageAction = fileMenu->addAction(QStringLiteral("从项目中删除图像"));
     fileMenu->addSeparator();
@@ -207,6 +251,7 @@ void MainWindow::createActions()
 
     connect(newProjectAction, &QAction::triggered, this, &MainWindow::createProject);
     connect(openProjectAction, &QAction::triggered, this, &MainWindow::openProject);
+    connect(closeProjectAction, &QAction::triggered, this, &MainWindow::closeProject);
     connect(m_importImagesAction, &QAction::triggered, this, &MainWindow::importImages);
     connect(m_removeImageAction, &QAction::triggered, this, &MainWindow::removeSelectedImage);
     connect(probeAction, &QAction::triggered, this, &MainWindow::probeBackend);
@@ -254,12 +299,33 @@ void MainWindow::openProject()
     }
 
     QString error;
-    if (!m_projectManager.openProject(manifestPath, &error)) {
+    if (!openProjectPath(manifestPath, &error)) {
         showProjectError(error);
         return;
     }
 
     m_logPanel->appendInfo(QStringLiteral("打开项目成功: %1").arg(m_projectManager.projectDirectory()));
+}
+
+bool MainWindow::openProjectPath(const QString& fileOrDirectory, QString* error)
+{
+    if (m_reconstructionController != nullptr && m_reconstructionController->isRunning()) {
+        if (error != nullptr) {
+            *error = QStringLiteral("当前正在进行三维重建，不能切换项目。");
+        }
+        return false;
+    }
+    return m_projectManager.openProject(fileOrDirectory, error);
+}
+
+void MainWindow::closeProject()
+{
+    if (m_reconstructionController != nullptr && m_reconstructionController->isRunning()) {
+        m_logPanel->appendError(QStringLiteral("当前正在进行三维重建，不能关闭项目。"));
+        return;
+    }
+    m_projectManager.closeProject();
+    m_logPanel->appendInfo(QStringLiteral("项目已关闭。"));
 }
 
 void MainWindow::importImages()
@@ -473,6 +539,8 @@ void MainWindow::finishBackendProbe(const BackendProbeResult& result)
 
 void MainWindow::onAssetSelected(const QString& assetId)
 {
+    clearPendingSurfaceHit();
+    showImagePreview();
     if (assetId.isEmpty() || !m_projectManager.hasProject()) {
         m_imagePreviewWidget->clearPreview();
         updateAssetActions();
@@ -577,6 +645,7 @@ void MainWindow::refreshProjectView()
 {
     const std::optional<ProjectManifest>& manifest = m_projectManager.currentManifest();
     if (!manifest.has_value()) {
+        clearViewerAssociation();
         m_projectPanel->clearProject();
         m_imageBrowserPanel->clearProject();
         m_imagePreviewWidget->clearPreview();
@@ -585,6 +654,21 @@ void MainWindow::refreshProjectView()
         updateReconstructionView();
         return;
     }
+
+    const ReconstructionMeshArtifact artifact =
+        m_projectManager.latestPoissonMeshArtifact();
+    const QString projectDirectory = QDir(m_projectManager.projectDirectory()).absolutePath();
+    const bool viewerIdentityChanged =
+        m_viewerMeshLoaded
+        && (m_reconstructionController->isRunning()
+            || m_viewerProjectDirectory != projectDirectory
+            || m_viewerTaskId != artifact.taskId
+            || !artifact.isValid()
+            || m_viewerCanonicalMeshPath != artifact.canonicalPath);
+    if (viewerIdentityChanged) {
+        clearViewerAssociation();
+    }
+
     m_projectPanel->setProject(*manifest, m_projectManager.projectDirectory());
     m_imageBrowserPanel->setProject(*manifest, m_projectManager.projectDirectory());
     m_imagePreviewWidget->clearPreview();
@@ -616,6 +700,7 @@ void MainWindow::updateReconstructionView()
     if (!m_projectManager.hasProject()) {
         m_reconstructionPanel->setProjectContext(false, 0);
         m_reconstructionPanel->setTask(ReconstructionTask());
+        m_reconstructionPanel->setMeshAvailable(false);
     } else {
         QString assetError;
         const int imageCount = m_projectManager.imageAssetRecords(&assetError).size();
@@ -630,11 +715,324 @@ void MainWindow::updateReconstructionView()
             }
         }
         m_reconstructionPanel->setTask(task);
+        m_reconstructionPanel->setMeshAvailable(
+            m_projectManager.latestPoissonMeshArtifact().isValid());
     }
     m_reconstructionPanel->setEngineContext(m_backendPanel->isVerified(),
                                             m_backendPanel->isGpuAvailable());
     m_reconstructionPanel->setRunning(m_reconstructionController->isRunning());
     updateAssetActions();
+}
+
+void MainWindow::open3DModel()
+{
+    if (!m_projectManager.hasProject()) {
+        m_logPanel->appendError(QStringLiteral(
+            "无法查看三维模型：No Active Project。请先打开项目。"));
+        m_reconstructionPanel->setMeshAvailable(false);
+        showImagePreview();
+        return;
+    }
+
+    const ReconstructionMeshArtifact artifact =
+        m_projectManager.latestPoissonMeshArtifact();
+    if (!artifact.isValid()) {
+        m_logPanel->appendError(artifact.message);
+        m_reconstructionPanel->setMeshAvailable(false);
+        if (m_viewerMeshLoaded) {
+            clearViewerAssociation();
+        } else {
+            showImagePreview();
+        }
+        return;
+    }
+
+    const QString projectDirectory = QDir(m_projectManager.projectDirectory()).absolutePath();
+    if (m_viewerMeshLoaded
+        && m_viewerProjectDirectory == projectDirectory
+        && m_viewerTaskId == artifact.taskId
+        && m_viewerCanonicalMeshPath == artifact.canonicalPath
+        && m_modelViewerWidget->hasMesh()) {
+        m_previewStack->setCurrentWidget(m_modelViewerWidget);
+        m_reconstructionPanel->setViewerLoaded(true);
+        refreshMarkerPresentation();
+        m_logPanel->appendInfo(QStringLiteral("已切换到已加载的三维模型。"));
+        return;
+    }
+
+    clearViewerAssociation();
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    MeshLoadResult loadResult = PlyMeshLoader::load(artifact.path);
+    QApplication::restoreOverrideCursor();
+    if (!loadResult.success) {
+        m_logPanel->appendError(QStringLiteral("三维模型加载失败：%1")
+                                    .arg(meshLoadErrorToString(loadResult.errorCode)));
+        m_logPanel->appendProcess(QStringLiteral("mesh path=%1; detail=%2")
+                                      .arg(artifact.path, loadResult.message));
+        m_reconstructionPanel->setMeshAvailable(true);
+        showImagePreview();
+        return;
+    }
+
+    m_modelViewerWidget->setMesh(std::move(loadResult.mesh));
+    if (!m_modelViewerWidget->hasMesh()) {
+        m_logPanel->appendError(QStringLiteral("OpenGL / Viewer Error：MeshData 未能进入 Viewer。"));
+        m_logPanel->appendProcess(QStringLiteral("mesh path=%1; detail=%2")
+                                      .arg(artifact.path,
+                                           m_modelViewerWidget->rendererStatus().lastError));
+        m_reconstructionPanel->setMeshAvailable(true);
+        showImagePreview();
+        return;
+    }
+
+    m_viewerMeshLoaded = true;
+    m_viewerProjectDirectory = projectDirectory;
+    m_viewerTaskId = artifact.taskId;
+    m_viewerMeshPath = artifact.path;
+    m_viewerCanonicalMeshPath = artifact.canonicalPath;
+    refreshMarkerPresentation();
+    m_previewStack->setCurrentWidget(m_modelViewerWidget);
+    m_reconstructionPanel->setViewerLoaded(true);
+    m_logPanel->appendInfo(QStringLiteral("已加载三维模型并完成 Fit To View。"));
+    m_logPanel->appendProcess(QStringLiteral("mesh path=%1; cpu load=%2 ms; normal generation=%3 ms")
+                                  .arg(artifact.path)
+                                  .arg(loadResult.metrics.loadMilliseconds, 0, 'f', 2)
+                                  .arg(loadResult.metrics.normalGenerationMilliseconds, 0, 'f', 2));
+}
+
+void MainWindow::resetViewer()
+{
+    if (!m_viewerMeshLoaded || !m_modelViewerWidget->hasMesh()) {
+        m_logPanel->appendError(QStringLiteral("无法重置三维视图：当前没有已加载的模型。"));
+        return;
+    }
+    m_modelViewerWidget->resetView();
+    m_previewStack->setCurrentWidget(m_modelViewerWidget);
+    m_logPanel->appendInfo(QStringLiteral("三维视图已重置。"));
+}
+
+void MainWindow::onSurfacePicked(const SurfaceHit& hit)
+{
+    if (!hit.isValid()) {
+        onSurfaceMissed();
+        return;
+    }
+
+    m_pendingSurfaceHit = hit;
+    m_hasPendingSurfaceHit = true;
+    m_pendingSurfaceProjectId = m_projectManager.currentManifest().has_value()
+        ? m_projectManager.currentManifest()->projectId()
+        : QString();
+    m_pendingSurfaceTaskId = m_viewerTaskId;
+    updateMarkerControls();
+
+    m_logPanel->appendInfo(
+        QStringLiteral("Picked triangle: %1 | World: (%2, %3, %4) | Distance: %5 | Barycentric: (%6, %7, %8)")
+            .arg(static_cast<qulonglong>(hit.triangleIndex))
+            .arg(hit.worldPosition.x(), 0, 'f', 6)
+            .arg(hit.worldPosition.y(), 0, 'f', 6)
+            .arg(hit.worldPosition.z(), 0, 'f', 6)
+            .arg(hit.distance, 0, 'f', 6)
+            .arg(hit.barycentric.x(), 0, 'f', 6)
+            .arg(hit.barycentric.y(), 0, 'f', 6)
+            .arg(hit.barycentric.z(), 0, 'f', 6));
+}
+
+void MainWindow::onSurfaceMissed()
+{
+    clearPendingSurfaceHit();
+    m_logPanel->appendInfo(QStringLiteral("未命中表面。"));
+}
+
+void MainWindow::onMarkerSelected(const QString& markerId)
+{
+    clearPendingSurfaceHit();
+    m_selectedMarkerId = markerId.trimmed();
+    if (m_selectedMarkerId.isEmpty()) {
+        m_reconstructionPanel->clearSelectedMarkerDetails();
+        updateMarkerControls();
+        return;
+    }
+
+    const std::optional<DeviceMarker> marker =
+        m_projectManager.deviceMarkerById(m_selectedMarkerId);
+    if (!marker.has_value() || marker->reconstructionTaskId != m_viewerTaskId) {
+        m_selectedMarkerId.clear();
+        m_modelViewerWidget->setSelectedMarker(QString());
+        m_reconstructionPanel->clearSelectedMarkerDetails();
+        updateMarkerControls();
+        return;
+    }
+    m_reconstructionPanel->setSelectedMarkerDetails(marker->id,
+                                                     marker->name,
+                                                     marker->worldPosition);
+    m_logPanel->appendInfo(QStringLiteral("已选择设备标记: %1 (%2)")
+                               .arg(marker->name, marker->id));
+    updateMarkerControls();
+}
+
+void MainWindow::addDeviceMarker()
+{
+    if (!m_hasPendingSurfaceHit || !m_viewerMeshLoaded
+        || m_pendingSurfaceTaskId != m_viewerTaskId
+        || m_pendingSurfaceProjectId.isEmpty()
+        || !m_projectManager.currentManifest().has_value()
+        || m_pendingSurfaceProjectId != m_projectManager.currentManifest()->projectId()) {
+        updateMarkerControls();
+        return;
+    }
+
+    bool accepted = false;
+    const QString name = QInputDialog::getText(this,
+                                               QStringLiteral("添加设备标记"),
+                                               QStringLiteral("设备名称 / ID:"),
+                                               QLineEdit::Normal,
+                                               QStringLiteral("P01"),
+                                               &accepted)
+                            .trimmed();
+    if (!accepted || name.isEmpty()) {
+        return;
+    }
+
+    DeviceMarker createdMarker;
+    QString error;
+    if (!m_projectManager.addDeviceMarker(name,
+                                          m_pendingSurfaceHit.worldPosition,
+                                          m_viewerTaskId,
+                                          &createdMarker,
+                                          &error)) {
+        showProjectError(error);
+        return;
+    }
+
+    clearPendingSurfaceHit();
+    refreshMarkerPresentation();
+    m_modelViewerWidget->setSelectedMarker(createdMarker.id);
+    m_logPanel->appendInfo(QStringLiteral("已添加设备标记: %1 | World: (%2, %3, %4)")
+                               .arg(createdMarker.name)
+                               .arg(createdMarker.worldPosition.x(), 0, 'f', 6)
+                               .arg(createdMarker.worldPosition.y(), 0, 'f', 6)
+                               .arg(createdMarker.worldPosition.z(), 0, 'f', 6));
+}
+
+void MainWindow::deleteDeviceMarker()
+{
+    if (m_selectedMarkerId.isEmpty()) {
+        updateMarkerControls();
+        return;
+    }
+
+    const QString markerId = m_selectedMarkerId;
+    QString error;
+    if (!m_projectManager.removeDeviceMarker(markerId, &error)) {
+        showProjectError(error);
+        return;
+    }
+    m_selectedMarkerId.clear();
+    m_modelViewerWidget->setSelectedMarker(QString());
+    m_reconstructionPanel->clearSelectedMarkerDetails();
+    refreshMarkerPresentation();
+    m_logPanel->appendInfo(QStringLiteral("已删除设备标记: %1").arg(markerId));
+    updateMarkerControls();
+}
+
+void MainWindow::clearViewerAssociation()
+{
+    clearPendingSurfaceHit();
+    if (m_modelViewerWidget != nullptr && m_modelViewerWidget->hasMesh()) {
+        m_modelViewerWidget->clearMesh();
+    }
+    if (m_modelViewerWidget != nullptr) {
+        m_modelViewerWidget->clearMarkers();
+    }
+    m_viewerMeshLoaded = false;
+    m_viewerProjectDirectory.clear();
+    m_viewerTaskId.clear();
+    m_viewerMeshPath.clear();
+    m_viewerCanonicalMeshPath.clear();
+    m_selectedMarkerId.clear();
+    if (m_previewStack != nullptr && m_imagePreviewWidget != nullptr) {
+        m_previewStack->setCurrentWidget(m_imagePreviewWidget);
+    }
+    if (m_reconstructionPanel != nullptr) {
+        m_reconstructionPanel->setViewerLoaded(false);
+        m_reconstructionPanel->clearSelectedMarkerDetails();
+        m_reconstructionPanel->setMarkerActionEnabled(false, false);
+    }
+}
+
+void MainWindow::clearPendingSurfaceHit()
+{
+    m_hasPendingSurfaceHit = false;
+    m_pendingSurfaceHit = SurfaceHit();
+    m_pendingSurfaceProjectId.clear();
+    m_pendingSurfaceTaskId.clear();
+    updateMarkerControls();
+}
+
+void MainWindow::refreshMarkerPresentation()
+{
+    if (m_modelViewerWidget == nullptr || !m_viewerMeshLoaded || m_viewerTaskId.isEmpty()) {
+        if (m_modelViewerWidget != nullptr) {
+            m_modelViewerWidget->setMarkers({});
+        }
+        m_selectedMarkerId.clear();
+        if (m_reconstructionPanel != nullptr) {
+            m_reconstructionPanel->clearSelectedMarkerDetails();
+        }
+        updateMarkerControls();
+        return;
+    }
+
+    const QList<DeviceMarker> activeMarkers =
+        m_projectManager.deviceMarkersForReconstruction(m_viewerTaskId);
+    QVector<DeviceMarkerView> views;
+    views.reserve(activeMarkers.size());
+    for (const DeviceMarker& marker : activeMarkers) {
+        DeviceMarkerView view;
+        view.id = marker.id;
+        view.label = marker.name;
+        view.worldPosition = marker.worldPosition;
+        view.selected = marker.id == m_selectedMarkerId;
+        views.append(view);
+    }
+    m_modelViewerWidget->setMarkers(views);
+    if (!m_selectedMarkerId.isEmpty()
+        && !m_projectManager.deviceMarkerById(m_selectedMarkerId).has_value()) {
+        m_selectedMarkerId.clear();
+        m_reconstructionPanel->clearSelectedMarkerDetails();
+    }
+    const qsizetype totalMarkers = m_projectManager.deviceMarkerModel().size();
+    const qsizetype hiddenMarkers = totalMarkers - activeMarkers.size();
+    if (hiddenMarkers > 0) {
+        m_logPanel->appendInfo(QStringLiteral(
+            "有 %1 个设备标记未显示：reconstruction identity 与当前 mesh 不一致。")
+                                    .arg(hiddenMarkers));
+    }
+    updateMarkerControls();
+}
+
+void MainWindow::updateMarkerControls()
+{
+    if (m_reconstructionPanel == nullptr) {
+        return;
+    }
+    const bool canAdd = m_hasPendingSurfaceHit
+        && m_viewerMeshLoaded
+        && m_pendingSurfaceTaskId == m_viewerTaskId
+        && m_projectManager.hasProject()
+        && m_pendingSurfaceProjectId == m_projectManager.currentManifest()->projectId();
+    const bool canDelete = !m_selectedMarkerId.isEmpty()
+        && m_viewerMeshLoaded
+        && m_projectManager.deviceMarkerById(m_selectedMarkerId).has_value();
+    m_reconstructionPanel->setMarkerActionEnabled(canAdd, canDelete);
+}
+
+void MainWindow::showImagePreview()
+{
+    if (m_previewStack != nullptr && m_imagePreviewWidget != nullptr) {
+        m_previewStack->setCurrentWidget(m_imagePreviewWidget);
+    }
 }
 
 void MainWindow::showProjectError(const QString& message)

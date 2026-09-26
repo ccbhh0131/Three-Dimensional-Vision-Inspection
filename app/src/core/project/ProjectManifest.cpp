@@ -71,6 +71,10 @@ std::optional<ProjectManifest> ProjectManifest::fromJson(const QJsonObject& json
         && !json.value(QStringLiteral("reconstruction")).isObject()) {
         return fail(QStringLiteral("reconstruction 必须是对象。"));
     }
+    if (json.contains(QStringLiteral("deviceMarkers"))
+        && !json.value(QStringLiteral("deviceMarkers")).isArray()) {
+        return fail(QStringLiteral("deviceMarkers 必须是数组。"));
+    }
 
     ProjectManifest manifest;
     manifest.m_schemaVersion = schemaVersion;
@@ -98,6 +102,7 @@ std::optional<ProjectManifest> ProjectManifest::fromJson(const QJsonObject& json
                                                 .toString();
     manifest.m_latestReconstructionTask = reconstruction.value(QStringLiteral("latestTask"))
                                               .toObject();
+    manifest.m_deviceMarkers = json.value(QStringLiteral("deviceMarkers")).toArray();
 
     QString validationError;
     if (!manifest.validate(&validationError)) {
@@ -214,6 +219,7 @@ QJsonObject ProjectManifest::toJson() const
              {QStringLiteral("activeTaskId"), m_reconstructionActiveTaskId},
              {QStringLiteral("latestTask"), m_latestReconstructionTask},
          }},
+        {QStringLiteral("deviceMarkers"), m_deviceMarkers},
     };
 }
 
@@ -234,6 +240,7 @@ const QJsonObject& ProjectManifest::latestReconstructionTask() const
 {
     return m_latestReconstructionTask;
 }
+const QJsonArray& ProjectManifest::deviceMarkers() const { return m_deviceMarkers; }
 
 QList<AssetRecord> ProjectManifest::imageAssetRecords(QString* error) const
 {
@@ -283,6 +290,11 @@ void ProjectManifest::setReconstructionMetadata(const QString& activeTaskId,
 {
     m_reconstructionActiveTaskId = activeTaskId;
     m_latestReconstructionTask = latestTask;
+}
+
+void ProjectManifest::setDeviceMarkers(const QJsonArray& markers)
+{
+    m_deviceMarkers = markers;
 }
 
 } // namespace vision3d

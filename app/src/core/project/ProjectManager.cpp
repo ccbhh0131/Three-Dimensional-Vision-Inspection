@@ -98,6 +98,20 @@ QStringList thumbnailPaths(const QString& projectDirectory, const QString& asset
     };
 }
 
+QString normalizedAbsolutePath(const QString& path)
+{
+    return QDir::fromNativeSeparators(
+        QDir::cleanPath(QFileInfo(path).absoluteFilePath()));
+}
+
+bool isWithinDirectory(const QString& directory, const QString& candidate)
+{
+    const QString normalizedDirectory = normalizedAbsolutePath(directory).toLower();
+    const QString normalizedCandidate = normalizedAbsolutePath(candidate).toLower();
+    return normalizedCandidate == normalizedDirectory
+           || normalizedCandidate.startsWith(normalizedDirectory + QLatin1Char('/'));
+}
+
 } // namespace
 
 namespace vision3d {
@@ -175,6 +189,7 @@ bool ProjectManager::newProject(const QString& parentDirectory,
 
     m_manifest = manifest;
     m_projectDirectory = workspace.absolutePath();
+    m_deviceMarkerModel.clear();
     emit projectChanged();
     return true;
 }
@@ -212,8 +227,19 @@ bool ProjectManager::openProject(const QString& fileOrDirectory, QString* error)
         return false;
     }
 
+    QString markerError;
+    const std::optional<DeviceMarkerModel> markerModel =
+        DeviceMarkerModel::fromJson(openedManifest.deviceMarkers(), &markerError);
+    if (!markerModel.has_value()) {
+        if (error != nullptr) {
+            *error = QStringLiteral("project.json deviceMarkers 无效: %1").arg(markerError);
+        }
+        return false;
+    }
+
     m_manifest = openedManifest;
     m_projectDirectory = QFileInfo(manifestPath).absolutePath();
+    m_deviceMarkerModel = *markerModel;
     if (openedManifest.latestReconstructionTask().isEmpty()) {
         // No task metadata is a valid Stage 3 state for an otherwise openable project.
     } else if (openedManifest.reconstructionState() == QStringLiteral("interrupted")) {
@@ -230,6 +256,17 @@ bool ProjectManager::openProject(const QString& fileOrDirectory, QString* error)
     return true;
 }
 
+void ProjectManager::closeProject()
+{
+    if (!m_manifest.has_value() && m_projectDirectory.isEmpty()) {
+        return;
+    }
+    m_manifest.reset();
+    m_projectDirectory.clear();
+    m_deviceMarkerModel.clear();
+    emit projectChanged();
+}
+
 bool ProjectManager::saveProject(QString* error)
 {
     if (!m_manifest.has_value() || m_projectDirectory.isEmpty()) {
@@ -239,6 +276,7 @@ bool ProjectManager::saveProject(QString* error)
         return false;
     }
 
+    m_manifest->setDeviceMarkers(m_deviceMarkerModel.toJson());
     m_manifest->setModifiedAt(QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
     return m_manifest->save(QDir(m_projectDirectory).filePath(QStringLiteral("project.json")), error);
 }
@@ -526,6 +564,157 @@ std::optional<ReconstructionTask> ProjectManager::latestReconstructionTask(QStri
     return ReconstructionTask::fromJson(latest, error);
 }
 
+bool ReconstructionMeshArtifact::isValid() const
+{
+    return status == ReconstructionMeshArtifactStatus::Valid
+           && !path.isEmpty()
+           && !canonicalPath.isEmpty();
+}
+
+ReconstructionMeshArtifact ProjectManager::latestPoissonMeshArtifact() const
+{
+    ReconstructionMeshArtifact artifact;
+    if (!hasProject() || m_projectDirectory.isEmpty()) {
+        artifact.message = QStringLiteral("No Active Project: 当前没有打开的项目。");
+        return artifact;
+    }
+
+    QString taskError;
+    const std::optional<ReconstructionTask> task = latestReconstructionTask(&taskError);
+    if (!task.has_value()) {
+        artifact.status = ReconstructionMeshArtifactStatus::NoReconstructionWorkspace;
+        artifact.message = taskError.isEmpty()
+            ? QStringLiteral("No Reconstruction Workspace: 当前项目没有已完成的 Reconstruction Workspace。")
+            : QStringLiteral("No Reconstruction Workspace: %1").arg(taskError);
+        return artifact;
+    }
+    artifact.taskId = task->taskId;
+    if (task->state != ReconstructionState::Completed
+        || task->workspaceRelativePath.trimmed().isEmpty()
+        || task->meshRelativePath.trimmed().isEmpty()) {
+        artifact.status = ReconstructionMeshArtifactStatus::NoReconstructionWorkspace;
+        artifact.message = QStringLiteral(
+            "No Reconstruction Workspace: 当前项目没有已完成且带 Poisson mesh 的重建任务。");
+        return artifact;
+    }
+
+    const QString workspaceRelative =
+        QDir::fromNativeSeparators(QDir::cleanPath(task->workspaceRelativePath));
+    const QString meshRelative =
+        QDir::fromNativeSeparators(QDir::cleanPath(task->meshRelativePath));
+    if (QDir::isAbsolutePath(workspaceRelative)
+        || QDir::isAbsolutePath(meshRelative)
+        || workspaceRelative == QStringLiteral(".")
+        || meshRelative == QStringLiteral(".")
+        || workspaceRelative.startsWith(QStringLiteral("../"))
+        || workspaceRelative.contains(QStringLiteral("/../"))
+        || meshRelative.startsWith(QStringLiteral("../"))
+        || meshRelative.contains(QStringLiteral("/../"))) {
+        artifact.status = ReconstructionMeshArtifactStatus::Invalid;
+        artifact.message = QStringLiteral(
+            "Artifact Invalid: Poisson mesh 路径不属于当前 reconstruction workspace。");
+        return artifact;
+    }
+
+    const QString projectDirectory = QFileInfo(m_projectDirectory).absoluteFilePath();
+    const QString workspacePath = QDir(projectDirectory).filePath(workspaceRelative);
+    const QString meshPath = QDir(workspacePath).filePath(meshRelative);
+    artifact.relativePath = workspaceRelative + QLatin1Char('/') + meshRelative;
+    artifact.path = QDir::cleanPath(meshPath);
+    if (!isWithinDirectory(workspacePath, artifact.path)) {
+        artifact.status = ReconstructionMeshArtifactStatus::Invalid;
+        artifact.message = QStringLiteral(
+            "Artifact Invalid: Poisson mesh 路径越出当前 reconstruction workspace。");
+        return artifact;
+    }
+
+    const QFileInfo meshInfo(artifact.path);
+    if (!meshInfo.exists()) {
+        artifact.status = ReconstructionMeshArtifactStatus::Missing;
+        artifact.message = QStringLiteral("Poisson Mesh Missing: %1").arg(artifact.path);
+        return artifact;
+    }
+    if (!meshInfo.isFile() || meshInfo.size() <= 0) {
+        artifact.status = ReconstructionMeshArtifactStatus::Invalid;
+        artifact.message = QStringLiteral("Artifact Invalid: Poisson mesh 不是非空普通文件: %1")
+                               .arg(artifact.path);
+        return artifact;
+    }
+
+    const QString canonicalWorkspace = QFileInfo(workspacePath).canonicalFilePath();
+    artifact.canonicalPath = meshInfo.canonicalFilePath();
+    if (canonicalWorkspace.isEmpty() || artifact.canonicalPath.isEmpty()
+        || !isWithinDirectory(canonicalWorkspace, artifact.canonicalPath)) {
+        artifact.status = ReconstructionMeshArtifactStatus::Invalid;
+        artifact.message = QStringLiteral(
+            "Artifact Invalid: Poisson mesh canonical path 不属于当前 reconstruction workspace。");
+        return artifact;
+    }
+
+    artifact.status = ReconstructionMeshArtifactStatus::Valid;
+    artifact.message = QStringLiteral("Poisson mesh artifact valid: %1").arg(artifact.path);
+    return artifact;
+}
+
+const DeviceMarkerModel& ProjectManager::deviceMarkerModel() const
+{
+    return m_deviceMarkerModel;
+}
+
+QList<DeviceMarker> ProjectManager::deviceMarkersForReconstruction(
+    const QString& reconstructionTaskId) const
+{
+    return m_deviceMarkerModel.forReconstruction(reconstructionTaskId);
+}
+
+std::optional<DeviceMarker> ProjectManager::deviceMarkerById(const QString& id) const
+{
+    return m_deviceMarkerModel.find(id);
+}
+
+bool ProjectManager::addDeviceMarker(const QString& name,
+                                     const QVector3D& worldPosition,
+                                     const QString& reconstructionTaskId,
+                                     DeviceMarker* createdMarker,
+                                     QString* error)
+{
+    if (!hasProject()) {
+        if (error != nullptr) {
+            *error = QStringLiteral("当前没有打开的项目，无法添加设备标记。 ").trimmed();
+        }
+        return false;
+    }
+
+    DeviceMarker marker = DeviceMarker::create(name, worldPosition, reconstructionTaskId);
+    DeviceMarkerModel candidate = m_deviceMarkerModel;
+    if (!candidate.add(marker, error)) {
+        return false;
+    }
+    if (!persistMarkerModel(candidate, error)) {
+        return false;
+    }
+    if (createdMarker != nullptr) {
+        *createdMarker = marker;
+    }
+    return true;
+}
+
+bool ProjectManager::removeDeviceMarker(const QString& id, QString* error)
+{
+    if (!hasProject()) {
+        if (error != nullptr) {
+            *error = QStringLiteral("当前没有打开的项目，无法删除设备标记。 ").trimmed();
+        }
+        return false;
+    }
+
+    DeviceMarkerModel candidate = m_deviceMarkerModel;
+    if (!candidate.remove(id, error)) {
+        return false;
+    }
+    return persistMarkerModel(candidate, error);
+}
+
 bool ProjectManager::markInterruptedTask(ProjectManifest* manifest, QString* error) const
 {
     if (manifest == nullptr || manifest->latestReconstructionTask().isEmpty()) {
@@ -561,12 +750,35 @@ bool ProjectManager::persistManifest(ProjectManifest manifest, QString* error)
         }
         return false;
     }
+    manifest.setDeviceMarkers(m_deviceMarkerModel.toJson());
     manifest.setModifiedAt(QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
     const QString manifestPath = QDir(m_projectDirectory).filePath(QStringLiteral("project.json"));
     if (!manifest.save(manifestPath, error)) {
         return false;
     }
     m_manifest = manifest;
+    emit projectChanged();
+    return true;
+}
+
+bool ProjectManager::persistMarkerModel(const DeviceMarkerModel& model, QString* error)
+{
+    if (!m_manifest.has_value() || m_projectDirectory.isEmpty()) {
+        if (error != nullptr) {
+            *error = QStringLiteral("当前没有打开的项目，无法保存设备标记。 ").trimmed();
+        }
+        return false;
+    }
+
+    ProjectManifest candidate = *m_manifest;
+    candidate.setDeviceMarkers(model.toJson());
+    candidate.setModifiedAt(QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
+    const QString manifestPath = QDir(m_projectDirectory).filePath(QStringLiteral("project.json"));
+    if (!candidate.save(manifestPath, error)) {
+        return false;
+    }
+    m_manifest = candidate;
+    m_deviceMarkerModel = model;
     emit projectChanged();
     return true;
 }

@@ -1,6 +1,8 @@
 #pragma once
 
 #include "backend/ColmapBackend.h"
+#include "core/device/DeviceMarker.h"
+#include "core/geometry/SurfaceHit.h"
 #include "core/process/ProcessRunner.h"
 #include "core/project/ProjectManager.h"
 #include "core/reconstruction/ReconstructionController.h"
@@ -9,6 +11,7 @@
 
 class QLabel;
 class QAction;
+class QStackedWidget;
 
 namespace vision3d {
 
@@ -16,9 +19,9 @@ class BackendPanel;
 class ImageBrowserPanel;
 class ImagePreviewWidget;
 class LogPanel;
+class ModelViewerWidget;
 class ProjectPanel;
 class ReconstructionPanel;
-
 class MainWindow final : public QMainWindow
 {
     Q_OBJECT
@@ -26,9 +29,12 @@ class MainWindow final : public QMainWindow
 public:
     explicit MainWindow(QWidget* parent = nullptr);
 
+    bool openProjectPath(const QString& fileOrDirectory, QString* error = nullptr);
+
 private slots:
     void createProject();
     void openProject();
+    void closeProject();
     void importImages();
     void removeSelectedImage();
     void openDeveloperSettings();
@@ -43,6 +49,13 @@ private slots:
     void cancelReconstruction();
     void onReconstructionLog(const QString& text, bool isError);
     void onReconstructionFinished(bool success);
+    void open3DModel();
+    void resetViewer();
+    void onSurfacePicked(const SurfaceHit& hit);
+    void onSurfaceMissed();
+    void onMarkerSelected(const QString& markerId);
+    void addDeviceMarker();
+    void deleteDeviceMarker();
     void refreshProjectView();
 
 private:
@@ -51,6 +64,11 @@ private:
     void finishBackendProbe(const BackendProbeResult& result);
     void updateAssetActions();
     void updateReconstructionView();
+    void clearViewerAssociation();
+    void clearPendingSurfaceHit();
+    void refreshMarkerPresentation();
+    void updateMarkerControls();
+    void showImagePreview();
     void showProjectError(const QString& message);
 
     ProjectManager m_projectManager;
@@ -59,6 +77,8 @@ private:
     ProjectPanel* m_projectPanel;
     ImageBrowserPanel* m_imageBrowserPanel;
     ImagePreviewWidget* m_imagePreviewWidget;
+    QStackedWidget* m_previewStack;
+    ModelViewerWidget* m_modelViewerWidget;
     BackendPanel* m_backendPanel;
     ReconstructionPanel* m_reconstructionPanel;
     LogPanel* m_logPanel;
@@ -76,6 +96,16 @@ private:
     bool m_probeFailed = false;
     bool m_probeUsingInternalRoot = false;
     bool m_probeFallbackAllowed = false;
+    bool m_viewerMeshLoaded = false;
+    QString m_viewerProjectDirectory;
+    QString m_viewerTaskId;
+    QString m_viewerMeshPath;
+    QString m_viewerCanonicalMeshPath;
+    bool m_hasPendingSurfaceHit = false;
+    SurfaceHit m_pendingSurfaceHit;
+    QString m_pendingSurfaceProjectId;
+    QString m_pendingSurfaceTaskId;
+    QString m_selectedMarkerId;
 };
 
 } // namespace vision3d

@@ -11,7 +11,7 @@ set(CMAKE_AUTORCC ON)
 
 option(VISION3DINSPECTOR_BUILD_TESTS "Build Qt Test targets" ON)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Widgets)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Widgets OpenGL OpenGLWidgets)
 
 set(VISION3DINSPECTOR_SOURCES
     src/main.cpp
@@ -27,6 +27,23 @@ set(VISION3DINSPECTOR_SOURCES
     src/core/project/ProjectManager.h
     src/core/process/ProcessRunner.cpp
     src/core/process/ProcessRunner.h
+    src/core/device/DeviceMarker.cpp
+    src/core/device/DeviceMarker.h
+    src/core/geometry/BoundingBox.cpp
+    src/core/geometry/BoundingBox.h
+    src/core/geometry/MarkerHitTesting.cpp
+    src/core/geometry/MarkerHitTesting.h
+    src/core/geometry/Ray.cpp
+    src/core/geometry/Ray.h
+    src/core/geometry/SurfaceHit.h
+    src/core/geometry/MeshPicking.cpp
+    src/core/geometry/MeshPicking.h
+    src/core/mesh/MeshData.cpp
+    src/core/mesh/MeshData.h
+    src/core/mesh/PlyMeshLoader.cpp
+    src/core/mesh/PlyMeshLoader.h
+    src/core/viewer/CameraController.cpp
+    src/core/viewer/CameraController.h
     src/core/reconstruction/ReconstructionArtifactValidator.cpp
     src/core/reconstruction/ReconstructionArtifactValidator.h
     src/core/reconstruction/ReconstructionController.cpp
@@ -57,6 +74,17 @@ set(VISION3DINSPECTOR_SOURCES
     src/widgets/ProjectPanel.h
     src/widgets/ReconstructionPanel.cpp
     src/widgets/ReconstructionPanel.h
+    src/render/MeshRenderer.cpp
+    src/render/MeshRenderer.h
+    src/render/MarkerRenderer.cpp
+    src/render/MarkerRenderer.h
+    src/widgets/ModelViewerWidget.cpp
+    src/widgets/ModelViewerWidget.h
+)
+
+set(VISION3DINSPECTOR_COMMON_SOURCES ${VISION3DINSPECTOR_SOURCES})
+list(REMOVE_ITEM VISION3DINSPECTOR_COMMON_SOURCES
+    src/main.cpp
 )
 
 add_executable(Vision3DInspector WIN32 ${VISION3DINSPECTOR_SOURCES})
@@ -67,6 +95,8 @@ target_link_libraries(Vision3DInspector PRIVATE
     Qt6::Core
     Qt6::Gui
     Qt6::Widgets
+    Qt6::OpenGL
+    Qt6::OpenGLWidgets
 )
 
 if(MSVC)
@@ -80,3 +110,26 @@ if(BUILD_TESTING AND VISION3DINSPECTOR_BUILD_TESTS)
 endif()
 
 qt_finalize_executable(Vision3DInspector)
+
+add_executable(Vision3DMainWindowSmoke
+    src/smoke/MainWindowSmokeMain.cpp
+    src/smoke/MainWindowIntegrationSmoke.cpp
+    src/smoke/MainWindowIntegrationSmoke.h
+    ${VISION3DINSPECTOR_COMMON_SOURCES}
+)
+
+target_compile_features(Vision3DMainWindowSmoke PRIVATE cxx_std_17)
+target_include_directories(Vision3DMainWindowSmoke PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(Vision3DMainWindowSmoke PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+    Qt6::OpenGL
+    Qt6::OpenGLWidgets
+)
+
+if(MSVC)
+    target_compile_options(Vision3DMainWindowSmoke PRIVATE /W4 /permissive- /FS)
+endif()
+
+qt_finalize_executable(Vision3DMainWindowSmoke)

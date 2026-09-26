@@ -49,6 +49,8 @@ add_test(NAME engine_locator COMMAND test_engine_locator)
 
 add_executable(test_project_manager
     test_project_manager.cpp
+    ../src/core/device/DeviceMarker.cpp
+    ../src/core/device/DeviceMarker.h
     ../src/core/assets/AssetRecord.cpp
     ../src/core/assets/AssetRecord.h
     ../src/core/project/ProjectManager.cpp
@@ -80,6 +82,8 @@ add_executable(test_main_window
     ../src/core/assets/ThumbnailCache.h
     ../src/core/process/ProcessRunner.cpp
     ../src/core/process/ProcessRunner.h
+    ../src/core/device/DeviceMarker.cpp
+    ../src/core/device/DeviceMarker.h
     ../src/core/reconstruction/ReconstructionArtifactValidator.cpp
     ../src/core/reconstruction/ReconstructionArtifactValidator.h
     ../src/core/reconstruction/ReconstructionController.cpp
@@ -110,17 +114,47 @@ add_executable(test_main_window
     ../src/widgets/ProjectPanel.h
     ../src/widgets/ReconstructionPanel.cpp
     ../src/widgets/ReconstructionPanel.h
+    ../src/core/geometry/BoundingBox.cpp
+    ../src/core/geometry/BoundingBox.h
+    ../src/core/geometry/MarkerHitTesting.cpp
+    ../src/core/geometry/MarkerHitTesting.h
+    ../src/core/geometry/Ray.cpp
+    ../src/core/geometry/Ray.h
+    ../src/core/geometry/SurfaceHit.h
+    ../src/core/geometry/MeshPicking.cpp
+    ../src/core/geometry/MeshPicking.h
+    ../src/core/mesh/MeshData.cpp
+    ../src/core/mesh/MeshData.h
+    ../src/core/mesh/PlyMeshLoader.cpp
+    ../src/core/mesh/PlyMeshLoader.h
+    ../src/core/viewer/CameraController.cpp
+    ../src/core/viewer/CameraController.h
+    ../src/render/MeshRenderer.cpp
+    ../src/render/MeshRenderer.h
+    ../src/render/MarkerRenderer.cpp
+    ../src/render/MarkerRenderer.h
+    ../src/widgets/ModelViewerWidget.cpp
+    ../src/widgets/ModelViewerWidget.h
 )
 target_compile_features(test_main_window PRIVATE cxx_std_17)
 if(MSVC)
     target_compile_options(test_main_window PRIVATE /FS)
 endif()
 target_include_directories(test_main_window PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
-target_link_libraries(test_main_window PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test)
+target_link_libraries(test_main_window PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+    Qt6::OpenGL
+    Qt6::OpenGLWidgets
+    Qt6::Test
+)
 add_test(NAME main_window_probe COMMAND test_main_window)
 
 add_executable(test_image_assets
     test_image_assets.cpp
+    ../src/core/device/DeviceMarker.cpp
+    ../src/core/device/DeviceMarker.h
     ../src/backend/BackendProbeResult.h
     ../src/backend/ReconstructionBackend.h
     ../src/backend/ColmapBackend.cpp
@@ -160,6 +194,8 @@ add_test(NAME image_assets COMMAND test_image_assets)
 
 add_executable(test_reconstruction
     test_reconstruction.cpp
+    ../src/core/device/DeviceMarker.cpp
+    ../src/core/device/DeviceMarker.h
     ../src/backend/BackendProbeResult.h
     ../src/backend/ReconstructionBackend.h
     ../src/backend/ColmapBackend.cpp
@@ -188,3 +224,141 @@ endif()
 target_include_directories(test_reconstruction PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
 target_link_libraries(test_reconstruction PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
 add_test(NAME reconstruction COMMAND test_reconstruction)
+
+add_executable(test_mesh_loader
+    test_mesh_loader.cpp
+    ../src/core/geometry/BoundingBox.cpp
+    ../src/core/geometry/BoundingBox.h
+    ../src/core/mesh/MeshData.cpp
+    ../src/core/mesh/MeshData.h
+    ../src/core/mesh/PlyMeshLoader.cpp
+    ../src/core/mesh/PlyMeshLoader.h
+)
+target_compile_features(test_mesh_loader PRIVATE cxx_std_17)
+if(MSVC)
+    target_compile_options(test_mesh_loader PRIVATE /FS)
+endif()
+target_include_directories(test_mesh_loader PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
+target_link_libraries(test_mesh_loader PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
+add_test(NAME mesh_loader COMMAND test_mesh_loader)
+
+add_executable(test_camera_controller
+    test_camera_controller.cpp
+    ../src/core/geometry/BoundingBox.cpp
+    ../src/core/geometry/BoundingBox.h
+    ../src/core/viewer/CameraController.cpp
+    ../src/core/viewer/CameraController.h
+)
+target_compile_features(test_camera_controller PRIVATE cxx_std_17)
+if(MSVC)
+    target_compile_options(test_camera_controller PRIVATE /FS)
+endif()
+target_include_directories(test_camera_controller PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
+target_link_libraries(test_camera_controller PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
+add_test(NAME camera_controller COMMAND test_camera_controller)
+
+add_executable(test_mesh_picking
+    test_mesh_picking.cpp
+    ../src/core/geometry/BoundingBox.cpp
+    ../src/core/geometry/BoundingBox.h
+    ../src/core/geometry/Ray.cpp
+    ../src/core/geometry/Ray.h
+    ../src/core/geometry/SurfaceHit.h
+    ../src/core/geometry/MeshPicking.cpp
+    ../src/core/geometry/MeshPicking.h
+    ../src/core/mesh/MeshData.cpp
+    ../src/core/mesh/MeshData.h
+    ../src/core/viewer/CameraController.cpp
+    ../src/core/viewer/CameraController.h
+)
+target_compile_features(test_mesh_picking PRIVATE cxx_std_17)
+if(MSVC)
+    target_compile_options(test_mesh_picking PRIVATE /FS)
+endif()
+target_include_directories(test_mesh_picking PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
+target_link_libraries(test_mesh_picking PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
+add_test(NAME mesh_picking COMMAND test_mesh_picking)
+
+add_executable(test_model_viewer_picking
+    test_model_viewer_picking.cpp
+    ../src/core/device/DeviceMarker.cpp
+    ../src/core/device/DeviceMarker.h
+    ../src/core/geometry/BoundingBox.cpp
+    ../src/core/geometry/BoundingBox.h
+    ../src/core/geometry/MarkerHitTesting.cpp
+    ../src/core/geometry/MarkerHitTesting.h
+    ../src/core/geometry/Ray.cpp
+    ../src/core/geometry/Ray.h
+    ../src/core/geometry/SurfaceHit.h
+    ../src/core/geometry/MeshPicking.cpp
+    ../src/core/geometry/MeshPicking.h
+    ../src/core/mesh/MeshData.cpp
+    ../src/core/mesh/MeshData.h
+    ../src/core/viewer/CameraController.cpp
+    ../src/core/viewer/CameraController.h
+    ../src/render/MeshRenderer.cpp
+    ../src/render/MeshRenderer.h
+    ../src/render/MarkerRenderer.cpp
+    ../src/render/MarkerRenderer.h
+    ../src/widgets/ModelViewerWidget.cpp
+    ../src/widgets/ModelViewerWidget.h
+)
+target_compile_features(test_model_viewer_picking PRIVATE cxx_std_17)
+if(MSVC)
+    target_compile_options(test_model_viewer_picking PRIVATE /FS)
+endif()
+target_include_directories(test_model_viewer_picking PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
+target_link_libraries(test_model_viewer_picking PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+    Qt6::OpenGL
+    Qt6::OpenGLWidgets
+    Qt6::Test
+)
+add_test(NAME model_viewer_picking COMMAND test_model_viewer_picking)
+
+add_executable(test_device_marker
+    test_device_marker.cpp
+    ../src/core/device/DeviceMarker.cpp
+    ../src/core/device/DeviceMarker.h
+    ../src/core/assets/AssetRecord.cpp
+    ../src/core/assets/AssetRecord.h
+    ../src/core/project/ProjectManager.cpp
+    ../src/core/project/ProjectManager.h
+    ../src/core/project/ProjectManifest.cpp
+    ../src/core/project/ProjectManifest.h
+    ../src/core/reconstruction/ReconstructionTask.cpp
+    ../src/core/reconstruction/ReconstructionTask.h
+)
+target_compile_features(test_device_marker PRIVATE cxx_std_17)
+if(MSVC)
+    target_compile_options(test_device_marker PRIVATE /FS)
+endif()
+target_include_directories(test_device_marker PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
+target_link_libraries(test_device_marker PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
+add_test(NAME device_marker COMMAND test_device_marker)
+
+add_executable(test_marker_hit_testing
+    test_marker_hit_testing.cpp
+    ../src/core/device/DeviceMarker.h
+    ../src/core/geometry/BoundingBox.cpp
+    ../src/core/geometry/BoundingBox.h
+    ../src/core/geometry/MarkerHitTesting.cpp
+    ../src/core/geometry/MarkerHitTesting.h
+    ../src/core/geometry/MeshPicking.cpp
+    ../src/core/geometry/MeshPicking.h
+    ../src/core/geometry/Ray.cpp
+    ../src/core/geometry/Ray.h
+    ../src/core/mesh/MeshData.cpp
+    ../src/core/mesh/MeshData.h
+    ../src/core/viewer/CameraController.cpp
+    ../src/core/viewer/CameraController.h
+)
+target_compile_features(test_marker_hit_testing PRIVATE cxx_std_17)
+if(MSVC)
+    target_compile_options(test_marker_hit_testing PRIVATE /FS)
+endif()
+target_include_directories(test_marker_hit_testing PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
+target_link_libraries(test_marker_hit_testing PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
+add_test(NAME marker_hit_testing COMMAND test_marker_hit_testing)

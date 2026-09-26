@@ -1,6 +1,7 @@
 # Third Party Notices
 
-This file records the final V0.1.0 source-repository boundary. The project
+This file records the final V0.2.0 source-repository boundary. The v0.1.0 tag
+remains unchanged as the historical source baseline. The project
 Apache-2.0 license does not relicense third-party software, research code,
 model weights or data. Third-party terms apply independently.
 

@@ -37,6 +37,7 @@ public:
     const QString& reconstructionState() const;
     const QString& reconstructionActiveTaskId() const;
     const QJsonObject& latestReconstructionTask() const;
+    const QJsonArray& deviceMarkers() const;
     QList<AssetRecord> imageAssetRecords(QString* error = nullptr) const;
 
     void setName(const QString& name);
@@ -47,6 +48,7 @@ public:
     void setReconstructionState(const QString& state);
     void setReconstructionMetadata(const QString& activeTaskId,
                                    const QJsonObject& latestTask);
+    void setDeviceMarkers(const QJsonArray& markers);
 
 private:
     int m_schemaVersion;
@@ -60,6 +62,7 @@ private:
     QString m_reconstructionState;
     QString m_reconstructionActiveTaskId;
     QJsonObject m_latestReconstructionTask;
+    QJsonArray m_deviceMarkers;
 };
 
 } // namespace vision3d

@@ -442,7 +442,7 @@ void ReconstructionTest::missingAssetPreventsStart()
     vision3d::ColmapBackend backend;
     FakeProcessRunner runner;
     vision3d::ReconstructionController controller(&manager, &backend, &runner);
-    QVERIFY(!controller.start(QStringLiteral("missing-colmap-directory"), &error));
+    QVERIFY(!controller.start(QStringLiteral("Z:/missing"), &error));
     QVERIFY(error.contains(QStringLiteral("不存在")));
     QVERIFY(runner.startedCommands.isEmpty());
 }
@@ -457,7 +457,7 @@ void ReconstructionTest::backendUnavailablePreventsStart()
     vision3d::ColmapBackend backend;
     FakeProcessRunner runner;
     vision3d::ReconstructionController controller(&manager, &backend, &runner);
-    QVERIFY(!controller.start(QStringLiteral("missing-colmap-directory"), &error));
+    QVERIFY(!controller.start(QStringLiteral("Z:/missing"), &error));
     QVERIFY(error.contains(QStringLiteral("不存在")));
     QVERIFY(runner.startedCommands.isEmpty());
 }

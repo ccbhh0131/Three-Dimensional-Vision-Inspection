@@ -1,0 +1,38 @@
+<RCC>
+    <qresource prefix="/stage5a">
+        <file>Theme.qml</file>
+        <file>AppShellFallback.qml</file>
+        <file>AppShell.qml</file>
+        <file>TopBar.qml</file>
+        <file>SceneToolbar.qml</file>
+        <file>Inspector.qml</file>
+        <file>StatusBar.qml</file>
+        <file>PageHost.qml</file>
+        <file>components/AppButton.qml</file>
+        <file>components/SecondaryButton.qml</file>
+        <file>components/GhostButton.qml</file>
+        <file>components/IconButton.qml</file>
+        <file>components/StatusChip.qml</file>
+        <file>components/SectionCard.qml</file>
+        <file>components/MetricCard.qml</file>
+        <file>components/PropertyRow.qml</file>
+        <file>components/NavigationRail.qml</file>
+        <file>components/NavigationItem.qml</file>
+        <file>components/PageHeader.qml</file>
+        <file>components/PanelTitle.qml</file>
+        <file>components/EmptyState.qml</file>
+        <file>pages/ProjectOverviewPage.qml</file>
+        <file>pages/ScenePage.qml</file>
+        <file>pages/VisualInspectionPage.qml</file>
+        <file>pages/RealtimePage.qml</file>
+        <file>pages/HistoryPage.qml</file>
+        <file>pages/ReconstructionPage.qml</file>
+        <file>icons/project.svg</file>
+        <file>icons/scene.svg</file>
+        <file>icons/inspection.svg</file>
+        <file>icons/realtime.svg</file>
+        <file>icons/history.svg</file>
+        <file>icons/reconstruction.svg</file>
+        <file>icons/settings.svg</file>
+    </qresource>
+</RCC>

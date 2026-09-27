@@ -13,9 +13,13 @@
 class QLabel;
 class QAction;
 class QStackedWidget;
+class QQuickWidget;
+class QUrl;
+class QWidget;
 
 namespace vision3d {
 
+class AppShellViewModel;
 class BackendPanel;
 class ImageBrowserPanel;
 class ImagePreviewWidget;
@@ -85,6 +89,10 @@ private:
     void updateMarkerControls();
     void showImagePreview();
     void showProjectError(const QString& message);
+    void createModernInterface();
+    void configureQmlWidget(QQuickWidget* widget, const QUrl& source);
+    void syncModernPage();
+    void ensureModernSelection(const QString& markerId);
 
     ProjectManager m_projectManager;
     ProcessRunner m_processRunner;
@@ -100,6 +108,16 @@ private:
     QLabel* m_statusLabel;
     ReconstructionController* m_reconstructionController;
     realtime::RealtimeMonitoringController* m_realtimeMonitoringController;
+    AppShellViewModel* m_appShellViewModel;
+    QWidget* m_legacyWidgetSurface = nullptr;
+    QWidget* m_modernRoot = nullptr;
+    QWidget* m_sceneContainer = nullptr;
+    QQuickWidget* m_topBarWidget = nullptr;
+    QQuickWidget* m_navigationWidget = nullptr;
+    QQuickWidget* m_pageWidget = nullptr;
+    QQuickWidget* m_sceneToolbarWidget = nullptr;
+    QQuickWidget* m_inspectorWidget = nullptr;
+    QQuickWidget* m_statusBarWidget = nullptr;
     QAction* m_importImagesAction = nullptr;
     QAction* m_removeImageAction = nullptr;
     QString m_pendingBackendRoot;

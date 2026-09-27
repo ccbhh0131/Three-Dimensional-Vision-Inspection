@@ -86,6 +86,9 @@ add_executable(test_main_window
     test_main_window.cpp
     ../src/app/MainWindow.cpp
     ../src/app/MainWindow.h
+    ../src/app/AppShellViewModel.cpp
+    ../src/app/AppShellViewModel.h
+    ../src/qml/qml.qrc
     ../src/core/project/ProjectManager.cpp
     ../src/core/project/ProjectManager.h
     ../src/core/project/ProjectManifest.cpp
@@ -189,10 +192,17 @@ target_link_libraries(test_main_window PRIVATE
     Qt6::OpenGLWidgets
     Qt6::Network
     Qt6::SerialBus
+    Qt6::Qml
+    Qt6::Quick
+    Qt6::QuickWidgets
+    Qt6::QuickControls2
     Qt6::Test
     ${OpenCV_LIBS}
 )
 add_test(NAME main_window_probe COMMAND test_main_window)
+set_tests_properties(main_window_probe PROPERTIES
+    ENVIRONMENT "VISION3DINSPECTOR_DISABLE_QML_UI=1"
+)
 
 add_executable(test_gauge_status
     test_gauge_status.cpp

@@ -1,5 +1,6 @@
 #include "app/MainWindow.h"
 
+#include "app/AppShellViewModel.h"
 #include "widgets/BackendPanel.h"
 #include "backend/ReconstructionEngineLocator.h"
 #include "core/mesh/PlyMeshLoader.h"
@@ -19,6 +20,7 @@
 #include <QAction>
 #include <QAbstractItemView>
 #include <QApplication>
+#include <QColor>
 #include <QDateTime>
 #include <QDialog>
 #include <QDir>
@@ -32,6 +34,12 @@
 #include <QMenuBar>
 #include <QRegularExpression>
 #include <QPushButton>
+#include <QQmlContext>
+#include <QQuickItem>
+#include <QQuickWindow>
+#include <QQuickWidget>
+#include <QSGRendererInterface>
+#include <QUrl>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStatusBar>
@@ -40,6 +48,7 @@
 #include <QTimer>
 #include <QToolBar>
 #include <QElapsedTimer>
+#include <QVariant>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -118,6 +127,9 @@ MainWindow::MainWindow(QWidget* parent)
                                                               this))
     , m_realtimeMonitoringController(
           new realtime::RealtimeMonitoringController(&m_projectManager, this))
+    , m_appShellViewModel(new AppShellViewModel(&m_projectManager,
+                                                m_realtimeMonitoringController,
+                                                this))
 {
     setWindowTitle(QStringLiteral("三维视觉检测软件"));
     setStatusBar(new QStatusBar(this));
@@ -151,12 +163,22 @@ MainWindow::MainWindow(QWidget* parent)
     topSplitter->setSizes({240, 560, 320});
 
     auto* centralWidget = new QWidget(this);
+    centralWidget->setObjectName(QStringLiteral("legacyWidgetSurface"));
     auto* centralLayout = new QVBoxLayout(centralWidget);
     centralLayout->addWidget(topSplitter, 2);
     centralLayout->addWidget(m_logPanel, 1);
+    m_legacyWidgetSurface = centralWidget;
     setCentralWidget(centralWidget);
 
     createActions();
+    menuBar()->hide();
+    for (QToolBar* toolbar : findChildren<QToolBar*>()) {
+        toolbar->hide();
+    }
+    statusBar()->hide();
+    if (!qEnvironmentVariableIsSet("VISION3DINSPECTOR_DISABLE_QML_UI")) {
+        createModernInterface();
+    }
 
     m_internalBackendRoot = ReconstructionEngineLocator::internalEngineRoot();
     m_developmentFallbackRoot = ReconstructionEngineLocator::savedDevelopmentBackendRoot();
@@ -308,9 +330,11 @@ MainWindow::MainWindow(QWidget* parent)
                 m_logPanel->appendError(QStringLiteral("实时监控错误: %1").arg(error));
             });
 
-    m_logPanel->appendInfo(QStringLiteral("应用已启动。当前为 V0.1 Stage 3。"));
+    m_logPanel->appendInfo(QStringLiteral("应用已启动。当前为 Stage 5A QML Hybrid。"));
     m_logPanel->appendInfo(QStringLiteral("当前已接入三维重建引擎。"));
     refreshProjectView();
+    m_appShellViewModel->refresh();
+    syncModernPage();
     if (!m_backendPanel->backendRoot().isEmpty()) {
         QTimer::singleShot(0, this, &MainWindow::probeBackend);
     }
@@ -342,6 +366,216 @@ void MainWindow::createActions()
     connect(m_removeImageAction, &QAction::triggered, this, &MainWindow::removeSelectedImage);
     connect(probeAction, &QAction::triggered, this, &MainWindow::probeBackend);
     connect(quitAction, &QAction::triggered, this, &QWidget::close);
+}
+
+void MainWindow::configureQmlWidget(QQuickWidget* widget, const QUrl& source)
+{
+    if (widget == nullptr) {
+        return;
+    }
+    widget->setResizeMode(QQuickWidget::SizeRootObjectToView);
+    widget->setClearColor(QColor(QStringLiteral("#F6F5F2")));
+    widget->rootContext()->setContextProperty(QStringLiteral("appShellViewModel"),
+                                              m_appShellViewModel);
+    widget->setSource(source);
+    // Keep the presentation adapter explicit on the loaded root object as
+    // well.  This makes the boundary robust for QML files loaded from the
+    // ordinary QRC resource tree and avoids relying on an imported component
+    // to re-resolve the context property after creation.
+    if (widget->rootObject() != nullptr) {
+        widget->rootObject()->setProperty(
+            "viewModel", QVariant::fromValue(static_cast<QObject*>(m_appShellViewModel)));
+    }
+}
+
+void MainWindow::createModernInterface()
+{
+    // The legacy viewer is a QOpenGLWidget.  Qt Quick may otherwise select
+    // D3D11 on Windows, which cannot be composed with that OpenGL surface.
+    QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
+
+    auto* modernRoot = new QWidget(this);
+    modernRoot->setObjectName(QStringLiteral("stage5aModernShell"));
+    modernRoot->setMinimumSize(980, 620);
+    auto* rootLayout = new QVBoxLayout(modernRoot);
+    rootLayout->setContentsMargins(0, 0, 0, 0);
+    rootLayout->setSpacing(0);
+
+    m_topBarWidget = new QQuickWidget(modernRoot);
+    m_topBarWidget->setObjectName(QStringLiteral("qmlTopBar"));
+    m_topBarWidget->setMinimumHeight(60);
+    m_topBarWidget->setMaximumHeight(60);
+    configureQmlWidget(m_topBarWidget, QUrl(QStringLiteral("qrc:/stage5a/TopBar.qml")));
+    rootLayout->addWidget(m_topBarWidget);
+
+    auto* workspaceRow = new QWidget(modernRoot);
+    workspaceRow->setObjectName(QStringLiteral("stage5aWorkspaceRow"));
+    auto* workspaceLayout = new QHBoxLayout(workspaceRow);
+    workspaceLayout->setContentsMargins(0, 0, 0, 0);
+    workspaceLayout->setSpacing(0);
+
+    m_navigationWidget = new QQuickWidget(workspaceRow);
+    m_navigationWidget->setObjectName(QStringLiteral("qmlNavigationRail"));
+    m_navigationWidget->setMinimumWidth(188);
+    m_navigationWidget->setMaximumWidth(204);
+    configureQmlWidget(m_navigationWidget,
+                       QUrl(QStringLiteral("qrc:/stage5a/components/NavigationRail.qml")));
+    workspaceLayout->addWidget(m_navigationWidget);
+
+    auto* centerWorkspace = new QWidget(workspaceRow);
+    centerWorkspace->setObjectName(QStringLiteral("stage5aCenterWorkspace"));
+    auto* centerLayout = new QVBoxLayout(centerWorkspace);
+    centerLayout->setContentsMargins(16, 14, 16, 14);
+    centerLayout->setSpacing(10);
+
+    m_sceneContainer = new QWidget(centerWorkspace);
+    m_sceneContainer->setObjectName(QStringLiteral("stage5aSceneContainer"));
+    auto* sceneLayout = new QVBoxLayout(m_sceneContainer);
+    sceneLayout->setContentsMargins(0, 0, 0, 0);
+    sceneLayout->setSpacing(8);
+    m_sceneToolbarWidget = new QQuickWidget(m_sceneContainer);
+    m_sceneToolbarWidget->setObjectName(QStringLiteral("qmlSceneToolbar"));
+    m_sceneToolbarWidget->setMinimumHeight(44);
+    m_sceneToolbarWidget->setMaximumHeight(44);
+    configureQmlWidget(m_sceneToolbarWidget,
+                       QUrl(QStringLiteral("qrc:/stage5a/SceneToolbar.qml")));
+    sceneLayout->addWidget(m_sceneToolbarWidget);
+    m_previewStack->setParent(m_sceneContainer);
+    m_previewStack->setObjectName(QStringLiteral("centralPreviewStack"));
+    sceneLayout->addWidget(m_previewStack, 1);
+    centerLayout->addWidget(m_sceneContainer, 1);
+
+    m_pageWidget = new QQuickWidget(centerWorkspace);
+    m_pageWidget->setObjectName(QStringLiteral("qmlPageHost"));
+    configureQmlWidget(m_pageWidget, QUrl(QStringLiteral("qrc:/stage5a/PageHost.qml")));
+    centerLayout->addWidget(m_pageWidget, 1);
+    workspaceLayout->addWidget(centerWorkspace, 1);
+
+    m_inspectorWidget = new QQuickWidget(workspaceRow);
+    m_inspectorWidget->setObjectName(QStringLiteral("qmlInspector"));
+    m_inspectorWidget->setMinimumWidth(344);
+    m_inspectorWidget->setMaximumWidth(380);
+    configureQmlWidget(m_inspectorWidget, QUrl(QStringLiteral("qrc:/stage5a/Inspector.qml")));
+    workspaceLayout->addWidget(m_inspectorWidget);
+    rootLayout->addWidget(workspaceRow, 1);
+
+    m_statusBarWidget = new QQuickWidget(modernRoot);
+    m_statusBarWidget->setObjectName(QStringLiteral("qmlStatusBar"));
+    m_statusBarWidget->setMinimumHeight(30);
+    m_statusBarWidget->setMaximumHeight(30);
+    configureQmlWidget(m_statusBarWidget, QUrl(QStringLiteral("qrc:/stage5a/StatusBar.qml")));
+    rootLayout->addWidget(m_statusBarWidget);
+
+    // QMainWindow owns its central widget.  Detach the legacy surface before
+    // replacing it so the existing C++ panels remain alive for project,
+    // reconstruction, gauge, and realtime flows routed from the shell.
+    QWidget* legacySurface = takeCentralWidget();
+    if (legacySurface != nullptr) {
+        legacySurface->setParent(this);
+    }
+    m_modernRoot = modernRoot;
+    setCentralWidget(m_modernRoot);
+    if (m_legacyWidgetSurface != nullptr) {
+        m_legacyWidgetSurface->hide();
+    }
+
+    connect(m_appShellViewModel,
+            &AppShellViewModel::currentPageChanged,
+            this,
+            &MainWindow::syncModernPage);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::markerSelectionRequested,
+            this,
+            &MainWindow::ensureModernSelection);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::createProjectRequested,
+            this,
+            &MainWindow::createProject);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::openProjectRequested,
+            this,
+            &MainWindow::openProject);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::importImagesRequested,
+            this,
+            &MainWindow::importImages);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::openViewerRequested,
+            this,
+            &MainWindow::open3DModel);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::resetViewerRequested,
+            this,
+            &MainWindow::resetViewer);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::visualReadingRequested,
+            this,
+            &MainWindow::visualGaugeReading);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::manualReadingRequested,
+            this,
+            &MainWindow::updateGaugeReading);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::showHistoryRequested,
+            this,
+            &MainWindow::showGaugeHistory);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::createGaugeRequested,
+            this,
+            &MainWindow::createGaugeAsset);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::editGaugeRequested,
+            this,
+            &MainWindow::editGaugeAsset);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::configureRuleRequested,
+            this,
+            &MainWindow::configureGaugeStatusRule);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::startRealtimeRequested,
+            this,
+            &MainWindow::startMockSensor);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::stopRealtimeRequested,
+            this,
+            &MainWindow::stopMockSensor);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::recordRealtimeRequested,
+            this,
+            &MainWindow::recordCurrentSensorSample);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::settingsRequested,
+            this,
+            &MainWindow::openDeveloperSettings);
+    syncModernPage();
+}
+
+void MainWindow::syncModernPage()
+{
+    if (m_appShellViewModel == nullptr || m_sceneContainer == nullptr
+        || m_pageWidget == nullptr) {
+        return;
+    }
+    const bool scenePage = m_appShellViewModel->currentPage() == QStringLiteral("scene");
+    m_sceneContainer->setVisible(scenePage);
+    m_pageWidget->setVisible(!scenePage);
+    if (m_sceneToolbarWidget != nullptr) {
+        m_sceneToolbarWidget->setVisible(scenePage);
+    }
+}
+
+void MainWindow::ensureModernSelection(const QString& markerId)
+{
+    const QString normalized = markerId.trimmed();
+    if (normalized.isEmpty() || !m_projectManager.deviceMarkerById(normalized).has_value()) {
+        return;
+    }
+    m_selectedMarkerId = normalized;
+    if (m_modelViewerWidget != nullptr && m_viewerMeshLoaded) {
+        m_modelViewerWidget->setSelectedMarker(normalized);
+        refreshSelectedMarkerDetails();
+        updateMarkerControls();
+    }
 }
 
 void MainWindow::createProject()
@@ -744,6 +978,9 @@ void MainWindow::refreshProjectView()
         m_statusLabel->setText(QStringLiteral("未打开项目"));
         updateAssetActions();
         updateReconstructionView();
+        if (m_appShellViewModel != nullptr) {
+            m_appShellViewModel->refresh();
+        }
         return;
     }
 
@@ -768,6 +1005,9 @@ void MainWindow::refreshProjectView()
     updateAssetActions();
     updateReconstructionView();
     refreshSelectedMarkerDetails();
+    if (m_appShellViewModel != nullptr) {
+        m_appShellViewModel->refresh();
+    }
 }
 
 void MainWindow::updateAssetActions()
@@ -825,6 +1065,10 @@ void MainWindow::open3DModel()
         m_reconstructionPanel->setMeshAvailable(false);
         showImagePreview();
         return;
+    }
+
+    if (m_appShellViewModel != nullptr) {
+        m_appShellViewModel->selectPage(QStringLiteral("scene"));
     }
 
     const ReconstructionMeshArtifact artifact =
@@ -944,6 +1188,9 @@ void MainWindow::onMarkerSelected(const QString& markerId)
     if (m_selectedMarkerId.isEmpty()) {
         m_reconstructionPanel->clearSelectedMarkerDetails();
         updateMarkerControls();
+        if (m_appShellViewModel != nullptr) {
+            m_appShellViewModel->setSelectedMarkerId(QString());
+        }
         return;
     }
 
@@ -957,6 +1204,9 @@ void MainWindow::onMarkerSelected(const QString& markerId)
         return;
     }
     refreshSelectedMarkerDetails();
+    if (m_appShellViewModel != nullptr) {
+        m_appShellViewModel->setSelectedMarkerId(m_selectedMarkerId);
+    }
     m_logPanel->appendInfo(QStringLiteral("已选择设备标记: %1 (%2)")
                                .arg(marker->name, marker->id));
     updateMarkerControls();
@@ -1001,6 +1251,9 @@ void MainWindow::refreshSelectedMarkerDetails()
         liveState,
         currentStatus,
         gauge.has_value() ? gauge->unit : QString());
+    if (m_appShellViewModel != nullptr) {
+        m_appShellViewModel->setSelectedMarkerId(m_selectedMarkerId);
+    }
     updateMarkerControls();
 }
 
@@ -1633,6 +1886,9 @@ void MainWindow::refreshMarkerPresentation()
     }
     if (!m_selectedMarkerId.isEmpty()) {
         refreshSelectedMarkerDetails();
+    }
+    if (m_appShellViewModel != nullptr) {
+        m_appShellViewModel->refresh();
     }
     updateMarkerControls();
 }

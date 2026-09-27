@@ -11,13 +11,16 @@ set(CMAKE_AUTORCC ON)
 
 option(VISION3DINSPECTOR_BUILD_TESTS "Build Qt Test targets" ON)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Widgets OpenGL OpenGLWidgets Network SerialBus)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Widgets OpenGL OpenGLWidgets Network SerialBus Qml Quick QuickWidgets QuickControls2)
 find_package(OpenCV 4.14.0 REQUIRED COMPONENTS core imgproc imgcodecs)
 
 set(VISION3DINSPECTOR_SOURCES
     src/main.cpp
     src/app/MainWindow.cpp
     src/app/MainWindow.h
+    src/app/AppShellViewModel.cpp
+    src/app/AppShellViewModel.h
+    src/qml/qml.qrc
     src/core/assets/AssetRecord.cpp
     src/core/assets/AssetRecord.h
     src/core/assets/ThumbnailCache.cpp
@@ -127,6 +130,10 @@ target_link_libraries(Vision3DInspector PRIVATE
     Qt6::OpenGLWidgets
     Qt6::Network
     Qt6::SerialBus
+    Qt6::Qml
+    Qt6::Quick
+    Qt6::QuickWidgets
+    Qt6::QuickControls2
     ${OpenCV_LIBS}
 )
 
@@ -140,7 +147,10 @@ if(BUILD_TESTING AND VISION3DINSPECTOR_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 
-qt_finalize_executable(Vision3DInspector)
+# The application uses ordinary QRC-loaded QQuickWidget files.  Avoid the
+# deploy-time qmlimportscanner here because the bundled scanner cannot decode
+# this repository's Chinese source path on Windows; runtime imports are still
+# resolved by Qt's QML engine from the compiled resource system.
 
 add_executable(Vision3DMainWindowSmoke
     src/smoke/MainWindowSmokeMain.cpp
@@ -162,6 +172,10 @@ target_link_libraries(Vision3DMainWindowSmoke PRIVATE
     Qt6::OpenGLWidgets
     Qt6::Network
     Qt6::SerialBus
+    Qt6::Qml
+    Qt6::Quick
+    Qt6::QuickWidgets
+    Qt6::QuickControls2
     ${OpenCV_LIBS}
 )
 
@@ -169,7 +183,6 @@ if(MSVC)
     target_compile_options(Vision3DMainWindowSmoke PRIVATE /W4 /permissive- /FS)
 endif()
 
-qt_finalize_executable(Vision3DMainWindowSmoke)
 
 function(copy_opencv_runtime target_name)
     if(TARGET opencv_world)

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/device/GaugeStatus.h"
+
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QList>
@@ -9,6 +11,15 @@
 #include <optional>
 
 namespace vision3d {
+
+enum class DeviceMarkerVisualState
+{
+    Default,
+    Unknown,
+    Normal,
+    Warning,
+    Alarm,
+};
 
 struct DeviceMarker
 {
@@ -33,6 +44,7 @@ struct DeviceMarkerView
     QString label;
     QVector3D worldPosition{0.0f, 0.0f, 0.0f};
     bool selected = false;
+    DeviceMarkerVisualState visualState = DeviceMarkerVisualState::Default;
 };
 
 class DeviceMarkerModel

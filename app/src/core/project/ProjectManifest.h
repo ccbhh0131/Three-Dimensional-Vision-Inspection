@@ -1,6 +1,8 @@
 #pragma once
 
 #include "core/assets/AssetRecord.h"
+#include "core/device/GaugeAsset.h"
+#include "core/inspection/InspectionRecord.h"
 
 #include <QJsonArray>
 #include <QJsonObject>
@@ -38,6 +40,8 @@ public:
     const QString& reconstructionActiveTaskId() const;
     const QJsonObject& latestReconstructionTask() const;
     const QJsonArray& deviceMarkers() const;
+    const QJsonArray& gaugeAssets() const;
+    const QJsonArray& inspectionRecords() const;
     QList<AssetRecord> imageAssetRecords(QString* error = nullptr) const;
 
     void setName(const QString& name);
@@ -49,6 +53,8 @@ public:
     void setReconstructionMetadata(const QString& activeTaskId,
                                    const QJsonObject& latestTask);
     void setDeviceMarkers(const QJsonArray& markers);
+    void setGaugeAssets(const QJsonArray& assets);
+    void setInspectionRecords(const QJsonArray& records);
 
 private:
     int m_schemaVersion;
@@ -63,6 +69,8 @@ private:
     QString m_reconstructionActiveTaskId;
     QJsonObject m_latestReconstructionTask;
     QJsonArray m_deviceMarkers;
+    QJsonArray m_gaugeAssets;
+    QJsonArray m_inspectionRecords;
 };
 
 } // namespace vision3d

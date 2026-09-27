@@ -21,14 +21,11 @@ void EngineLocatorTest::internalRootIsApplicationRelative()
 {
     QTemporaryDir applicationDirectory;
     QVERIFY(applicationDirectory.isValid());
-    const QString applicationDirectoryPath = applicationDirectory.path();
     const QString root = vision3d::ReconstructionEngineLocator::internalEngineRoot(
-        applicationDirectoryPath);
-    QCOMPARE(QDir::fromNativeSeparators(root),
-             QDir::fromNativeSeparators(
-                 QDir(applicationDirectoryPath).filePath("runtime/reconstruction/engine")));
-    QVERIFY(QDir::fromNativeSeparators(root).startsWith(
-        QDir::fromNativeSeparators(applicationDirectoryPath)));
+        applicationDirectory.path());
+    const QString expected = QDir(applicationDirectory.path()).filePath(
+        QStringLiteral("runtime/reconstruction/engine"));
+    QCOMPARE(QDir::fromNativeSeparators(root), QDir::fromNativeSeparators(expected));
 }
 
 void EngineLocatorTest::savedDevelopmentFallbackRoundtrip()
@@ -38,8 +35,7 @@ void EngineLocatorTest::savedDevelopmentFallbackRoundtrip()
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDirectory.path());
 
-    const QString fallback = QDir(settingsDirectory.path()).filePath(
-        QStringLiteral("reconstruction-engine"));
+    const QString fallback = QStringLiteral("developer/reconstruction-engine");
     vision3d::ReconstructionEngineLocator::saveDevelopmentBackendRoot(fallback);
     QCOMPARE(vision3d::ReconstructionEngineLocator::savedDevelopmentBackendRoot(), fallback);
 
@@ -53,8 +49,7 @@ void EngineLocatorTest::preferredRootUsesInternalBeforeFallback()
 {
     QTemporaryDir applicationDirectory;
     QVERIFY(applicationDirectory.isValid());
-    const QString fallback = QDir(applicationDirectory.path()).filePath(
-        QStringLiteral("fallback/reconstruction-engine"));
+    const QString fallback = QStringLiteral("developer/reconstruction-engine");
 
     QCOMPARE(vision3d::ReconstructionEngineLocator::preferredRoot(applicationDirectory.path(),
                                                                     fallback),

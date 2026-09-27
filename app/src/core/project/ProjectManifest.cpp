@@ -75,6 +75,14 @@ std::optional<ProjectManifest> ProjectManifest::fromJson(const QJsonObject& json
         && !json.value(QStringLiteral("deviceMarkers")).isArray()) {
         return fail(QStringLiteral("deviceMarkers 必须是数组。"));
     }
+    if (json.contains(QStringLiteral("gaugeAssets"))
+        && !json.value(QStringLiteral("gaugeAssets")).isArray()) {
+        return fail(QStringLiteral("gaugeAssets 必须是数组。"));
+    }
+    if (json.contains(QStringLiteral("inspectionRecords"))
+        && !json.value(QStringLiteral("inspectionRecords")).isArray()) {
+        return fail(QStringLiteral("inspectionRecords 必须是数组。"));
+    }
 
     ProjectManifest manifest;
     manifest.m_schemaVersion = schemaVersion;
@@ -103,6 +111,8 @@ std::optional<ProjectManifest> ProjectManifest::fromJson(const QJsonObject& json
     manifest.m_latestReconstructionTask = reconstruction.value(QStringLiteral("latestTask"))
                                               .toObject();
     manifest.m_deviceMarkers = json.value(QStringLiteral("deviceMarkers")).toArray();
+    manifest.m_gaugeAssets = json.value(QStringLiteral("gaugeAssets")).toArray();
+    manifest.m_inspectionRecords = json.value(QStringLiteral("inspectionRecords")).toArray();
 
     QString validationError;
     if (!manifest.validate(&validationError)) {
@@ -199,6 +209,29 @@ bool ProjectManifest::validate(QString* error) const
             return fail(QStringLiteral("assets[%1] 无效: %2").arg(index).arg(assetError));
         }
     }
+    for (qsizetype index = 0; index < m_gaugeAssets.size(); ++index) {
+        if (!m_gaugeAssets.at(index).isObject()) {
+            return fail(QStringLiteral("gaugeAssets[%1] 必须是对象。").arg(index));
+        }
+        QString gaugeError;
+        if (!GaugeAsset::fromJson(m_gaugeAssets.at(index).toObject(), &gaugeError).has_value()) {
+            return fail(QStringLiteral("gaugeAssets[%1] 无效: %2")
+                            .arg(index)
+                            .arg(gaugeError));
+        }
+    }
+    for (qsizetype index = 0; index < m_inspectionRecords.size(); ++index) {
+        if (!m_inspectionRecords.at(index).isObject()) {
+            return fail(QStringLiteral("inspectionRecords[%1] 必须是对象。").arg(index));
+        }
+        QString recordError;
+        if (!InspectionRecord::fromJson(m_inspectionRecords.at(index).toObject(), &recordError)
+                 .has_value()) {
+            return fail(QStringLiteral("inspectionRecords[%1] 无效: %2")
+                            .arg(index)
+                            .arg(recordError));
+        }
+    }
     return true;
 }
 
@@ -220,6 +253,8 @@ QJsonObject ProjectManifest::toJson() const
              {QStringLiteral("latestTask"), m_latestReconstructionTask},
          }},
         {QStringLiteral("deviceMarkers"), m_deviceMarkers},
+        {QStringLiteral("gaugeAssets"), m_gaugeAssets},
+        {QStringLiteral("inspectionRecords"), m_inspectionRecords},
     };
 }
 
@@ -241,6 +276,8 @@ const QJsonObject& ProjectManifest::latestReconstructionTask() const
     return m_latestReconstructionTask;
 }
 const QJsonArray& ProjectManifest::deviceMarkers() const { return m_deviceMarkers; }
+const QJsonArray& ProjectManifest::gaugeAssets() const { return m_gaugeAssets; }
+const QJsonArray& ProjectManifest::inspectionRecords() const { return m_inspectionRecords; }
 
 QList<AssetRecord> ProjectManifest::imageAssetRecords(QString* error) const
 {
@@ -295,6 +332,16 @@ void ProjectManifest::setReconstructionMetadata(const QString& activeTaskId,
 void ProjectManifest::setDeviceMarkers(const QJsonArray& markers)
 {
     m_deviceMarkers = markers;
+}
+
+void ProjectManifest::setGaugeAssets(const QJsonArray& assets)
+{
+    m_gaugeAssets = assets;
+}
+
+void ProjectManifest::setInspectionRecords(const QJsonArray& records)
+{
+    m_inspectionRecords = records;
 }
 
 } // namespace vision3d

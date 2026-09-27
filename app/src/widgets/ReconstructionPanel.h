@@ -1,6 +1,9 @@
 #pragma once
 
 #include "core/reconstruction/ReconstructionTask.h"
+#include "core/device/GaugeAsset.h"
+#include "core/realtime/GaugeDataSource.h"
+#include "core/realtime/GaugeLiveState.h"
 
 #include <QWidget>
 
@@ -23,6 +26,16 @@ public:
     QPushButton* resetViewButton() const;
     QPushButton* addMarkerButton() const;
     QPushButton* deleteMarkerButton() const;
+    QPushButton* createGaugeButton() const;
+    QPushButton* editGaugeButton() const;
+    QPushButton* updateGaugeReadingButton() const;
+    QPushButton* visualGaugeReadingButton() const;
+    QPushButton* viewGaugeHistoryButton() const;
+    QPushButton* configureGaugeStatusRuleButton() const;
+    QPushButton* deleteGaugeButton() const;
+    QPushButton* startMockSensorButton() const;
+    QPushButton* stopMockSensorButton() const;
+    QPushButton* recordCurrentSensorSampleButton() const;
     void setProjectContext(bool hasProject, int imageCount);
     void setEngineContext(bool engineAvailable, bool gpuAvailable);
     // Kept as a source-compatible adapter for callers that still hold the
@@ -39,6 +52,21 @@ public:
                                   const QString& name,
                                   const QVector3D& worldPosition);
     void clearSelectedMarkerDetails();
+    void setSelectedGaugeDetails(const std::optional<GaugeAsset>& asset,
+                                 GaugeStatus status = GaugeStatus::Unknown);
+    void setSelectedGaugeHistoryCount(qsizetype count);
+    void setGaugeActionEnabled(bool canCreate,
+                               bool canEdit,
+                               bool canUpdateReading,
+                               bool canDelete);
+    void setVisualGaugeReadingEnabled(bool enabled);
+    void setGaugeStatusRuleEnabled(bool enabled);
+    void setRealtimeMonitoringState(
+        bool hasGauge,
+        realtime::GaugeDataSourceState state,
+        const std::optional<realtime::GaugeLiveState>& liveState,
+        GaugeStatus status,
+        const QString& unit);
 
 signals:
     void startRequested();
@@ -47,6 +75,16 @@ signals:
     void resetViewRequested();
     void addMarkerRequested();
     void deleteMarkerRequested();
+    void createGaugeRequested();
+    void editGaugeRequested();
+    void updateGaugeReadingRequested();
+    void visualGaugeReadingRequested();
+    void viewGaugeHistoryRequested();
+    void configureGaugeStatusRuleRequested();
+    void deleteGaugeRequested();
+    void startMockSensorRequested();
+    void stopMockSensorRequested();
+    void recordCurrentSensorSampleRequested();
 
 private:
     void updateControls();
@@ -67,6 +105,22 @@ private:
     QLabel* m_markerLabel;
     QPushButton* m_addMarkerButton;
     QPushButton* m_deleteMarkerButton;
+    QLabel* m_gaugeLabel;
+    QPushButton* m_createGaugeButton;
+    QPushButton* m_editGaugeButton;
+    QPushButton* m_updateGaugeReadingButton;
+    QPushButton* m_visualGaugeReadingButton;
+    QPushButton* m_viewGaugeHistoryButton;
+    QPushButton* m_configureGaugeStatusRuleButton;
+    QPushButton* m_deleteGaugeButton;
+    QLabel* m_realtimeStateLabel;
+    QLabel* m_realtimeValueLabel;
+    QLabel* m_realtimeTimestampLabel;
+    QLabel* m_realtimeSourceLabel;
+    QLabel* m_realtimeStatusLabel;
+    QPushButton* m_startMockSensorButton;
+    QPushButton* m_stopMockSensorButton;
+    QPushButton* m_recordCurrentSensorSampleButton;
     bool m_hasProject = false;
     int m_imageCount = 0;
     bool m_engineAvailable = false;
@@ -76,6 +130,18 @@ private:
     bool m_viewerLoaded = false;
     bool m_canAddMarker = false;
     bool m_canDeleteMarker = false;
+    bool m_canCreateGauge = false;
+    bool m_canEditGauge = false;
+    bool m_canUpdateGaugeReading = false;
+    bool m_canVisualGaugeReading = false;
+    bool m_canViewGaugeHistory = false;
+    bool m_canConfigureGaugeStatusRule = false;
+    qsizetype m_gaugeHistoryCount = 0;
+    bool m_canDeleteGauge = false;
+    bool m_realtimeHasGauge = false;
+    realtime::GaugeDataSourceState m_realtimeState =
+        realtime::GaugeDataSourceState::Stopped;
+    std::optional<realtime::GaugeLiveState> m_realtimeLiveState;
 };
 
 } // namespace vision3d

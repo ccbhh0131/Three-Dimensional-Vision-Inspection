@@ -3,34 +3,47 @@
 #include "widgets/BackendPanel.h"
 #include "backend/ReconstructionEngineLocator.h"
 #include "core/mesh/PlyMeshLoader.h"
+#include "core/device/GaugeProfile.h"
+#include "core/realtime/RealtimeMonitoringController.h"
 #include "widgets/DeveloperSettingsDialog.h"
+#include "widgets/GaugeAssetDialog.h"
+#include "widgets/GaugeStatusRuleDialog.h"
 #include "widgets/ImageBrowserPanel.h"
 #include "widgets/ImagePreviewWidget.h"
 #include "widgets/LogPanel.h"
 #include "widgets/ModelViewerWidget.h"
 #include "widgets/ProjectPanel.h"
 #include "widgets/ReconstructionPanel.h"
+#include "widgets/VisualGaugeReadingDialog.h"
 
 #include <QAction>
+#include <QAbstractItemView>
 #include <QApplication>
+#include <QDateTime>
+#include <QDialog>
 #include <QDir>
 #include <QFileDialog>
 #include <QImageReader>
+#include <QHBoxLayout>
 #include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QMenuBar>
 #include <QRegularExpression>
+#include <QPushButton>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStatusBar>
+#include <QTableWidget>
+#include <QHeaderView>
 #include <QTimer>
 #include <QToolBar>
 #include <QElapsedTimer>
 #include <QVBoxLayout>
 #include <QWidget>
 
+#include <cmath>
 #include <utility>
 
 namespace vision3d {
@@ -69,6 +82,21 @@ QString productLogText(const QString& text)
     return visibleLines.join(QLatin1Char('\n'));
 }
 
+DeviceMarkerVisualState markerVisualStateForGaugeStatus(GaugeStatus status)
+{
+    switch (status) {
+    case GaugeStatus::Unknown:
+        return DeviceMarkerVisualState::Unknown;
+    case GaugeStatus::Normal:
+        return DeviceMarkerVisualState::Normal;
+    case GaugeStatus::Warning:
+        return DeviceMarkerVisualState::Warning;
+    case GaugeStatus::Alarm:
+        return DeviceMarkerVisualState::Alarm;
+    }
+    return DeviceMarkerVisualState::Unknown;
+}
+
 } // namespace
 
 MainWindow::MainWindow(QWidget* parent)
@@ -88,6 +116,8 @@ MainWindow::MainWindow(QWidget* parent)
                                                               &m_colmapBackend,
                                                               nullptr,
                                                               this))
+    , m_realtimeMonitoringController(
+          new realtime::RealtimeMonitoringController(&m_projectManager, this))
 {
     setWindowTitle(QStringLiteral("三维视觉检测软件"));
     setStatusBar(new QStatusBar(this));
@@ -209,6 +239,46 @@ MainWindow::MainWindow(QWidget* parent)
             &ReconstructionPanel::deleteMarkerRequested,
             this,
             &MainWindow::deleteDeviceMarker);
+    connect(m_reconstructionPanel,
+            &ReconstructionPanel::createGaugeRequested,
+            this,
+            &MainWindow::createGaugeAsset);
+    connect(m_reconstructionPanel,
+            &ReconstructionPanel::editGaugeRequested,
+            this,
+            &MainWindow::editGaugeAsset);
+    connect(m_reconstructionPanel,
+            &ReconstructionPanel::updateGaugeReadingRequested,
+            this,
+            &MainWindow::updateGaugeReading);
+    connect(m_reconstructionPanel,
+            &ReconstructionPanel::visualGaugeReadingRequested,
+            this,
+            &MainWindow::visualGaugeReading);
+    connect(m_reconstructionPanel,
+            &ReconstructionPanel::viewGaugeHistoryRequested,
+            this,
+            &MainWindow::showGaugeHistory);
+    connect(m_reconstructionPanel,
+            &ReconstructionPanel::configureGaugeStatusRuleRequested,
+            this,
+            &MainWindow::configureGaugeStatusRule);
+    connect(m_reconstructionPanel,
+            &ReconstructionPanel::deleteGaugeRequested,
+            this,
+            &MainWindow::deleteGaugeAsset);
+    connect(m_reconstructionPanel,
+            &ReconstructionPanel::startMockSensorRequested,
+            this,
+            &MainWindow::startMockSensor);
+    connect(m_reconstructionPanel,
+            &ReconstructionPanel::stopMockSensorRequested,
+            this,
+            &MainWindow::stopMockSensor);
+    connect(m_reconstructionPanel,
+            &ReconstructionPanel::recordCurrentSensorSampleRequested,
+            this,
+            &MainWindow::recordCurrentSensorSample);
     connect(m_reconstructionController,
             &ReconstructionController::taskChanged,
             this,
@@ -221,6 +291,22 @@ MainWindow::MainWindow(QWidget* parent)
             &ReconstructionController::finished,
             this,
             &MainWindow::onReconstructionFinished);
+    connect(m_realtimeMonitoringController,
+            &realtime::RealtimeMonitoringController::liveStateChanged,
+            this,
+            [this](const QString&) { refreshMarkerPresentation(); });
+    connect(m_realtimeMonitoringController,
+            &realtime::RealtimeMonitoringController::monitoringStateChanged,
+            this,
+            [this](const QString&, realtime::GaugeDataSourceState) {
+                refreshMarkerPresentation();
+            });
+    connect(m_realtimeMonitoringController,
+            &realtime::RealtimeMonitoringController::errorOccurred,
+            this,
+            [this](const QString& error) {
+                m_logPanel->appendError(QStringLiteral("实时监控错误: %1").arg(error));
+            });
 
     m_logPanel->appendInfo(QStringLiteral("应用已启动。当前为 V0.1 Stage 3。"));
     m_logPanel->appendInfo(QStringLiteral("当前已接入三维重建引擎。"));
@@ -315,6 +401,9 @@ bool MainWindow::openProjectPath(const QString& fileOrDirectory, QString* error)
         }
         return false;
     }
+    if (m_realtimeMonitoringController != nullptr) {
+        m_realtimeMonitoringController->stop();
+    }
     return m_projectManager.openProject(fileOrDirectory, error);
 }
 
@@ -323,6 +412,9 @@ void MainWindow::closeProject()
     if (m_reconstructionController != nullptr && m_reconstructionController->isRunning()) {
         m_logPanel->appendError(QStringLiteral("当前正在进行三维重建，不能关闭项目。"));
         return;
+    }
+    if (m_realtimeMonitoringController != nullptr) {
+        m_realtimeMonitoringController->stop();
     }
     m_projectManager.closeProject();
     m_logPanel->appendInfo(QStringLiteral("项目已关闭。"));
@@ -675,6 +767,7 @@ void MainWindow::refreshProjectView()
     m_statusLabel->setText(manifest->name());
     updateAssetActions();
     updateReconstructionView();
+    refreshSelectedMarkerDetails();
 }
 
 void MainWindow::updateAssetActions()
@@ -863,11 +956,51 @@ void MainWindow::onMarkerSelected(const QString& markerId)
         updateMarkerControls();
         return;
     }
+    refreshSelectedMarkerDetails();
+    m_logPanel->appendInfo(QStringLiteral("已选择设备标记: %1 (%2)")
+                               .arg(marker->name, marker->id));
+    updateMarkerControls();
+}
+
+void MainWindow::refreshSelectedMarkerDetails()
+{
+    if (m_selectedMarkerId.isEmpty()) {
+        m_reconstructionPanel->clearSelectedMarkerDetails();
+        updateMarkerControls();
+        return;
+    }
+    const std::optional<DeviceMarker> marker =
+        m_projectManager.deviceMarkerById(m_selectedMarkerId);
+    if (!marker.has_value() || marker->reconstructionTaskId != m_viewerTaskId) {
+        m_selectedMarkerId.clear();
+        m_modelViewerWidget->setSelectedMarker(QString());
+        m_reconstructionPanel->clearSelectedMarkerDetails();
+        updateMarkerControls();
+        return;
+    }
     m_reconstructionPanel->setSelectedMarkerDetails(marker->id,
                                                      marker->name,
                                                      marker->worldPosition);
-    m_logPanel->appendInfo(QStringLiteral("已选择设备标记: %1 (%2)")
-                               .arg(marker->name, marker->id));
+    const std::optional<GaugeAsset> gauge =
+        m_projectManager.gaugeAssetForMarker(marker->id);
+    m_reconstructionPanel->setSelectedGaugeHistoryCount(
+        gauge.has_value() ? m_projectManager.inspectionRecordsForGauge(gauge->id).size() : 0);
+    const GaugeStatus status = gauge.has_value()
+        ? GaugeStatusEvaluator::evaluate(gauge->latestValue, gauge->statusRule)
+        : GaugeStatus::Unknown;
+    const std::optional<realtime::GaugeLiveState> liveState = gauge.has_value()
+        ? m_realtimeMonitoringController->liveStateForGauge(gauge->id)
+        : std::nullopt;
+    const GaugeStatus currentStatus = gauge.has_value() && liveState.has_value()
+        ? GaugeStatusEvaluator::evaluate(liveState->value, gauge->statusRule)
+        : status;
+    m_reconstructionPanel->setSelectedGaugeDetails(gauge, currentStatus);
+    m_reconstructionPanel->setRealtimeMonitoringState(
+        gauge.has_value(),
+        m_realtimeMonitoringController->state(),
+        liveState,
+        currentStatus,
+        gauge.has_value() ? gauge->unit : QString());
     updateMarkerControls();
 }
 
@@ -923,6 +1056,23 @@ void MainWindow::deleteDeviceMarker()
     }
 
     const QString markerId = m_selectedMarkerId;
+    const std::optional<GaugeAsset> boundGauge =
+        m_projectManager.gaugeAssetForMarker(markerId);
+    if (boundGauge.has_value()) {
+        const QMessageBox::StandardButton answer = QMessageBox::question(
+            this,
+            QStringLiteral("删除设备标记"),
+            QStringLiteral("设备标记 %1 已绑定仪表资产“%2”。删除标记将同时删除该仪表资产，是否继续？")
+                .arg(markerId, boundGauge->name),
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::No);
+        if (answer != QMessageBox::Yes) {
+            return;
+        }
+    }
+    if (boundGauge.has_value()) {
+        m_realtimeMonitoringController->stopForGauge(boundGauge->id);
+    }
     QString error;
     if (!m_projectManager.removeDeviceMarker(markerId, &error)) {
         showProjectError(error);
@@ -934,6 +1084,468 @@ void MainWindow::deleteDeviceMarker()
     refreshMarkerPresentation();
     m_logPanel->appendInfo(QStringLiteral("已删除设备标记: %1").arg(markerId));
     updateMarkerControls();
+}
+
+void MainWindow::createGaugeAsset()
+{
+    if (m_selectedMarkerId.isEmpty() || !m_viewerMeshLoaded) {
+        updateMarkerControls();
+        return;
+    }
+    if (m_projectManager.gaugeAssetForMarker(m_selectedMarkerId).has_value()) {
+        refreshSelectedMarkerDetails();
+        return;
+    }
+
+    GaugeAssetDialog dialog(QStringLiteral("创建仪表资产"), std::nullopt, this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    GaugeAsset created = GaugeAsset::create(m_selectedMarkerId,
+                                            dialog.assetName(),
+                                            dialog.rangeMin(),
+                                            dialog.rangeMax(),
+                                            dialog.unit());
+    created.gaugeProfileId = dialog.gaugeProfileId();
+    QString error;
+    if (!m_projectManager.addGaugeAsset(created, &error)) {
+        showProjectError(error);
+        return;
+    }
+    refreshMarkerPresentation();
+    m_logPanel->appendInfo(QStringLiteral("已创建仪表资产: %1 (%2)")
+                               .arg(created.name, created.id));
+}
+
+void MainWindow::editGaugeAsset()
+{
+    if (m_selectedMarkerId.isEmpty()) {
+        updateMarkerControls();
+        return;
+    }
+    const std::optional<GaugeAsset> existing =
+        m_projectManager.gaugeAssetForMarker(m_selectedMarkerId);
+    if (!existing.has_value()) {
+        refreshSelectedMarkerDetails();
+        return;
+    }
+
+    GaugeAssetDialog dialog(QStringLiteral("编辑仪表资产"), existing, this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    GaugeAsset updated = *existing;
+    updated.name = dialog.assetName();
+    updated.rangeMin = dialog.rangeMin();
+    updated.rangeMax = dialog.rangeMax();
+    updated.unit = dialog.unit();
+    updated.gaugeProfileId = dialog.gaugeProfileId();
+    QString error;
+    if (!m_projectManager.updateGaugeAsset(updated, &error)) {
+        showProjectError(error);
+        return;
+    }
+    refreshMarkerPresentation();
+    m_logPanel->appendInfo(QStringLiteral("已更新仪表资产: %1").arg(updated.name));
+}
+
+void MainWindow::updateGaugeReading()
+{
+    if (m_selectedMarkerId.isEmpty()) {
+        updateMarkerControls();
+        return;
+    }
+    const std::optional<GaugeAsset> existing =
+        m_projectManager.gaugeAssetForMarker(m_selectedMarkerId);
+    if (!existing.has_value()) {
+        refreshSelectedMarkerDetails();
+        return;
+    }
+
+    bool accepted = false;
+    const QString text = QInputDialog::getText(this,
+                                               QStringLiteral("手动更新读数"),
+                                               QStringLiteral("读数:"),
+                                               QLineEdit::Normal,
+                                               existing->latestValue.has_value()
+                                                   ? QString::number(*existing->latestValue, 'g', 15)
+                                                   : QString(),
+                                               &accepted)
+                             .trimmed();
+    if (!accepted) {
+        return;
+    }
+    bool ok = false;
+    const double value = text.toDouble(&ok);
+    if (!ok || !std::isfinite(value)) {
+        QMessageBox::warning(this,
+                             QStringLiteral("读数无效"),
+                             QStringLiteral("读数必须是有限数字。"));
+        return;
+    }
+    QString error;
+    if (!m_projectManager.updateGaugeReading(existing->id,
+                                             value,
+                                             QDateTime::currentDateTimeUtc(),
+                                             GaugeDataSource::Manual,
+                                             &error)) {
+        showProjectError(error);
+        return;
+    }
+    if (value < existing->rangeMin || value > existing->rangeMax) {
+        m_logPanel->appendInfo(QStringLiteral("读数超出配置量程，已保存原始值: %1 %2")
+                                   .arg(QString::number(value, 'g', 15), existing->unit));
+    } else {
+        m_logPanel->appendInfo(QStringLiteral("已更新手动读数: %1 %2")
+                                   .arg(QString::number(value, 'g', 15), existing->unit));
+    }
+    refreshMarkerPresentation();
+}
+
+void MainWindow::visualGaugeReading()
+{
+    if (m_selectedMarkerId.isEmpty()) {
+        updateMarkerControls();
+        return;
+    }
+    const std::optional<GaugeAsset> existing =
+        m_projectManager.gaugeAssetForMarker(m_selectedMarkerId);
+    if (!existing.has_value()) {
+        refreshSelectedMarkerDetails();
+        return;
+    }
+    if (existing->gaugeProfileId.trimmed().isEmpty()) {
+        showProjectError(QStringLiteral(
+            "当前仪表没有绑定 GaugeProfile。请编辑仪表资产并选择视觉 Profile。"));
+        return;
+    }
+    const std::optional<GaugeProfile> profile =
+        builtInGaugeProfile(existing->gaugeProfileId);
+    if (!profile.has_value()) {
+        showProjectError(QStringLiteral("未找到 GaugeProfile: %1")
+                             .arg(existing->gaugeProfileId));
+        return;
+    }
+
+    QList<VisualGaugeImageChoice> projectImages;
+    QString imageError;
+    for (const AssetRecord& asset : m_projectManager.imageAssetRecords(&imageError)) {
+        const QString path = m_projectManager.absoluteAssetPath(asset);
+        if (!path.isEmpty() && QFileInfo(path).isFile()) {
+            projectImages.append({asset.originalFileName, path, asset.id});
+        }
+    }
+    if (!imageError.isEmpty()) {
+        m_logPanel->appendError(imageError);
+    }
+
+    VisualGaugeReadingDialog dialog(*profile, projectImages, this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    VisualGaugeReadingResult result = dialog.result();
+    if (!result.success) {
+        showProjectError(QStringLiteral("视觉读数失败: %1").arg(result.failureReason));
+        return;
+    }
+
+    const QString captureDirectory =
+        qEnvironmentVariable("VISION3DINSPECTOR_STAGE4D_CAPTURE_DIR").trimmed();
+    if (!captureDirectory.isEmpty() && !result.diagnosticOverlay.isNull()) {
+        if (!QDir().mkpath(captureDirectory)) {
+            m_logPanel->appendError(QStringLiteral("无法创建视觉诊断 capture 目录: %1")
+                                        .arg(captureDirectory));
+        } else {
+            const QString overlayPath = QDir(captureDirectory).filePath(
+                QStringLiteral("visual_gauge_overlay_%1.png").arg(existing->id));
+            if (!result.diagnosticOverlay.save(overlayPath)) {
+                m_logPanel->appendError(QStringLiteral("无法保存视觉诊断 overlay: %1")
+                                            .arg(overlayPath));
+            } else {
+                m_logPanel->appendInfo(QStringLiteral("视觉诊断 overlay 已保存: %1")
+                                           .arg(overlayPath));
+            }
+        }
+    }
+
+    QString imageAssetId = dialog.selectedImageAssetId();
+    if (imageAssetId.isEmpty()) {
+        const QString selectedImagePath = dialog.selectedImagePath();
+        if (selectedImagePath.isEmpty()) {
+            showProjectError(QStringLiteral("视觉读数没有关联图片，无法建立巡检历史。"));
+            return;
+        }
+        QString importError;
+        const QList<AssetImportResult> importResults =
+            m_projectManager.importImages({selectedImagePath}, &importError);
+        if (!importError.isEmpty() || importResults.size() != 1
+            || (importResults.first().status != AssetImportStatus::Imported
+                && importResults.first().status != AssetImportStatus::Duplicate)) {
+            showProjectError(importError.isEmpty()
+                                 ? QStringLiteral("视觉巡检图片导入项目失败。 ").trimmed()
+                                 : importError);
+            return;
+        }
+        imageAssetId = importResults.first().asset.id;
+        m_logPanel->appendInfo(importResults.first().message);
+    }
+
+    QString error;
+    if (!m_projectManager.recordGaugeReading(existing->id,
+                                             result.value,
+                                             QDateTime::currentDateTimeUtc(),
+                                             GaugeDataSource::Visual,
+                                             imageAssetId,
+                                             &error)) {
+        showProjectError(error);
+        return;
+    }
+    m_logPanel->appendInfo(
+        QStringLiteral("已确认视觉读数: %1 %2 | angle=%3° | center=%4 | confidence=%5")
+            .arg(QString::number(result.value, 'f', 3),
+                 existing->unit,
+                 QString::number(result.needleAngleDegrees, 'f', 1),
+                 gaugeCenterSourceToString(result.centerSource),
+                 QString::number(result.confidence, 'f', 2)));
+    refreshMarkerPresentation();
+}
+
+void MainWindow::configureGaugeStatusRule()
+{
+    if (m_selectedMarkerId.isEmpty()) {
+        updateMarkerControls();
+        return;
+    }
+    const std::optional<GaugeAsset> existing =
+        m_projectManager.gaugeAssetForMarker(m_selectedMarkerId);
+    if (!existing.has_value()) {
+        refreshSelectedMarkerDetails();
+        return;
+    }
+
+    GaugeStatusRuleDialog dialog(QStringLiteral("配置仪表状态规则"),
+                                 existing->rangeMin,
+                                 existing->rangeMax,
+                                 existing->statusRule,
+                                 this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    GaugeAsset updated = *existing;
+    updated.statusRule = dialog.statusRule();
+    QString error;
+    if (!m_projectManager.updateGaugeAsset(updated, &error)) {
+        showProjectError(error);
+        return;
+    }
+    refreshMarkerPresentation();
+    m_logPanel->appendInfo(updated.statusRule.has_value()
+                               ? QStringLiteral("已更新仪表状态规则: %1").arg(updated.name)
+                               : QStringLiteral("已清除仪表状态规则: %1").arg(updated.name));
+}
+
+void MainWindow::startMockSensor()
+{
+    if (m_selectedMarkerId.isEmpty()) {
+        updateMarkerControls();
+        return;
+    }
+    const std::optional<GaugeAsset> gauge =
+        m_projectManager.gaugeAssetForMarker(m_selectedMarkerId);
+    if (!gauge.has_value()) {
+        refreshSelectedMarkerDetails();
+        return;
+    }
+    QString error;
+    if (!m_realtimeMonitoringController->startMockSensor(gauge->id, &error)) {
+        showProjectError(error);
+        return;
+    }
+    m_logPanel->appendInfo(QStringLiteral("已启动仪表模拟传感器: %1").arg(gauge->name));
+    refreshMarkerPresentation();
+}
+
+void MainWindow::stopMockSensor()
+{
+    m_realtimeMonitoringController->stop();
+    m_logPanel->appendInfo(QStringLiteral("已停止实时仪表监控。"));
+    refreshMarkerPresentation();
+}
+
+void MainWindow::recordCurrentSensorSample()
+{
+    if (m_selectedMarkerId.isEmpty()) {
+        updateMarkerControls();
+        return;
+    }
+    const std::optional<GaugeAsset> gauge =
+        m_projectManager.gaugeAssetForMarker(m_selectedMarkerId);
+    if (!gauge.has_value()) {
+        refreshSelectedMarkerDetails();
+        return;
+    }
+    QString error;
+    if (!m_realtimeMonitoringController->recordCurrentValue(gauge->id, &error)) {
+        showProjectError(error);
+        return;
+    }
+    m_logPanel->appendInfo(QStringLiteral("已记录当前传感器读数: %1").arg(gauge->name));
+    refreshMarkerPresentation();
+}
+
+void MainWindow::showGaugeHistory()
+{
+    if (m_selectedMarkerId.isEmpty()) {
+        updateMarkerControls();
+        return;
+    }
+    const std::optional<GaugeAsset> gauge =
+        m_projectManager.gaugeAssetForMarker(m_selectedMarkerId);
+    if (!gauge.has_value()) {
+        refreshSelectedMarkerDetails();
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setObjectName(QStringLiteral("inspectionHistoryDialog"));
+    dialog.setWindowTitle(QStringLiteral("巡检历史 — %1").arg(gauge->name));
+    dialog.resize(760, 420);
+
+    auto* table = new QTableWidget(&dialog);
+    table->setObjectName(QStringLiteral("inspectionHistoryTable"));
+    table->setColumnCount(5);
+    table->setHorizontalHeaderLabels({QStringLiteral("时间"),
+                                      QStringLiteral("读数"),
+                                      QStringLiteral("单位"),
+                                      QStringLiteral("来源"),
+                                      QStringLiteral("图片")});
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->setSelectionMode(QAbstractItemView::SingleSelection);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->horizontalHeader()->setStretchLastSection(true);
+    table->verticalHeader()->setVisible(false);
+
+    const QList<InspectionRecord> records =
+        m_projectManager.inspectionRecordsForGauge(gauge->id);
+    table->setRowCount(records.size());
+    for (qsizetype row = 0; row < records.size(); ++row) {
+        const InspectionRecord& record = records.at(row);
+        table->setItem(static_cast<int>(row),
+                       0,
+                       new QTableWidgetItem(
+                           record.timestamp.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))));
+        table->setItem(static_cast<int>(row),
+                       1,
+                       new QTableWidgetItem(QString::number(record.value, 'g', 15)));
+        table->setItem(static_cast<int>(row), 2, new QTableWidgetItem(gauge->unit));
+        table->setItem(static_cast<int>(row),
+                       3,
+                       new QTableWidgetItem(gaugeDataSourceDisplayName(record.dataSource)));
+        table->setItem(static_cast<int>(row),
+                       4,
+                       new QTableWidgetItem(record.imageAssetId.isEmpty()
+                                                ? QStringLiteral("—")
+                                                : QStringLiteral("查看")));
+    }
+
+    auto* detailLabel = new QLabel(QStringLiteral("选择一条记录查看详情。"), &dialog);
+    detailLabel->setObjectName(QStringLiteral("inspectionHistoryDetailLabel"));
+    detailLabel->setWordWrap(true);
+    auto* viewImageButton = new QPushButton(QStringLiteral("查看关联图片"), &dialog);
+    viewImageButton->setObjectName(QStringLiteral("inspectionHistoryViewImageButton"));
+    auto* closeButton = new QPushButton(QStringLiteral("关闭"), &dialog);
+    auto* buttons = new QHBoxLayout;
+    buttons->addWidget(viewImageButton);
+    buttons->addStretch();
+    buttons->addWidget(closeButton);
+
+    auto updateHistorySelection = [&, detailLabel, viewImageButton] {
+        const int row = table->currentRow();
+        if (row < 0 || row >= records.size()) {
+            detailLabel->setText(QStringLiteral("选择一条记录查看详情。"));
+            viewImageButton->setEnabled(false);
+            return;
+        }
+        const InspectionRecord& record = records.at(row);
+        detailLabel->setText(
+            QStringLiteral("时间: %1\n读数: %2 %3\n来源: %4\n关联图片: %5")
+                .arg(record.timestamp.toLocalTime().toString(Qt::ISODateWithMs))
+                .arg(QString::number(record.value, 'g', 15))
+                .arg(gauge->unit)
+                .arg(gaugeDataSourceDisplayName(record.dataSource))
+                .arg(record.imageAssetId.isEmpty() ? QStringLiteral("无")
+                                                    : record.imageAssetId));
+        viewImageButton->setEnabled(!record.imageAssetId.isEmpty());
+    };
+    connect(table,
+            &QTableWidget::itemSelectionChanged,
+            &dialog,
+            updateHistorySelection);
+    connect(viewImageButton, &QPushButton::clicked, &dialog, [&, table] {
+        const int row = table->currentRow();
+        if (row < 0 || row >= records.size()) {
+            return;
+        }
+        const InspectionRecord& record = records.at(row);
+        const std::optional<AssetRecord> asset =
+            m_projectManager.assetById(record.imageAssetId);
+        if (!asset.has_value()) {
+            showProjectError(QStringLiteral("巡检记录关联的 ImageAsset 不存在: %1")
+                                 .arg(record.imageAssetId));
+            return;
+        }
+        m_imagePreviewWidget->showAsset(*asset, m_projectManager.projectDirectory());
+        showImagePreview();
+        m_logPanel->appendInfo(QStringLiteral("已打开巡检图片: %1")
+                                   .arg(asset->originalFileName));
+    });
+    connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
+
+    auto* layout = new QVBoxLayout(&dialog);
+    layout->addWidget(new QLabel(QStringLiteral("按时间倒序显示，历史记录不可直接编辑。"), &dialog));
+    layout->addWidget(table, 1);
+    layout->addWidget(detailLabel);
+    layout->addLayout(buttons);
+    if (!records.isEmpty()) {
+        table->selectRow(0);
+    } else {
+        viewImageButton->setEnabled(false);
+        detailLabel->setText(QStringLiteral("暂无历史记录。"));
+    }
+    dialog.exec();
+}
+
+void MainWindow::deleteGaugeAsset()
+{
+    if (m_selectedMarkerId.isEmpty()) {
+        updateMarkerControls();
+        return;
+    }
+    const std::optional<GaugeAsset> existing =
+        m_projectManager.gaugeAssetForMarker(m_selectedMarkerId);
+    if (!existing.has_value()) {
+        refreshSelectedMarkerDetails();
+        return;
+    }
+    const QMessageBox::StandardButton answer = QMessageBox::question(
+        this,
+        QStringLiteral("删除仪表资产"),
+        QStringLiteral("确定删除仪表资产“%1”吗？设备标记将保留。").arg(existing->name),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    if (answer != QMessageBox::Yes) {
+        return;
+    }
+    m_realtimeMonitoringController->stopForGauge(existing->id);
+    QString error;
+    if (!m_projectManager.removeGaugeAsset(existing->id, &error)) {
+        showProjectError(error);
+        return;
+    }
+    refreshMarkerPresentation();
+    m_logPanel->appendInfo(QStringLiteral("已删除仪表资产，设备标记仍保留: %1")
+                               .arg(m_selectedMarkerId));
 }
 
 void MainWindow::clearViewerAssociation()
@@ -994,6 +1606,16 @@ void MainWindow::refreshMarkerPresentation()
         view.label = marker.name;
         view.worldPosition = marker.worldPosition;
         view.selected = marker.id == m_selectedMarkerId;
+        const std::optional<GaugeAsset> gauge =
+            m_projectManager.gaugeAssetForMarker(marker.id);
+        if (gauge.has_value()) {
+            const std::optional<realtime::GaugeLiveState> liveState =
+                m_realtimeMonitoringController->liveStateForGauge(gauge->id);
+            const GaugeStatus status = liveState.has_value()
+                ? GaugeStatusEvaluator::evaluate(liveState->value, gauge->statusRule)
+                : GaugeStatusEvaluator::evaluate(gauge->latestValue, gauge->statusRule);
+            view.visualState = markerVisualStateForGaugeStatus(status);
+        }
         views.append(view);
     }
     m_modelViewerWidget->setMarkers(views);
@@ -1008,6 +1630,9 @@ void MainWindow::refreshMarkerPresentation()
         m_logPanel->appendInfo(QStringLiteral(
             "有 %1 个设备标记未显示：reconstruction identity 与当前 mesh 不一致。")
                                     .arg(hiddenMarkers));
+    }
+    if (!m_selectedMarkerId.isEmpty()) {
+        refreshSelectedMarkerDetails();
     }
     updateMarkerControls();
 }
@@ -1026,6 +1651,17 @@ void MainWindow::updateMarkerControls()
         && m_viewerMeshLoaded
         && m_projectManager.deviceMarkerById(m_selectedMarkerId).has_value();
     m_reconstructionPanel->setMarkerActionEnabled(canAdd, canDelete);
+    const bool hasSelectedMarker = !m_selectedMarkerId.isEmpty()
+        && m_viewerMeshLoaded
+        && m_projectManager.deviceMarkerById(m_selectedMarkerId).has_value();
+    const bool hasGauge = hasSelectedMarker
+        && m_projectManager.gaugeAssetForMarker(m_selectedMarkerId).has_value();
+    m_reconstructionPanel->setGaugeActionEnabled(hasSelectedMarker && !hasGauge,
+                                                  hasGauge,
+                                                  hasGauge,
+                                                  hasGauge);
+    m_reconstructionPanel->setVisualGaugeReadingEnabled(hasGauge);
+    m_reconstructionPanel->setGaugeStatusRuleEnabled(hasGauge);
 }
 
 void MainWindow::showImagePreview()

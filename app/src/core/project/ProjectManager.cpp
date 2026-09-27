@@ -1,5 +1,7 @@
 #include "core/project/ProjectManager.h"
 
+#include "core/device/GaugeProfile.h"
+
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
@@ -8,6 +10,9 @@
 #include <QImage>
 #include <QImageReader>
 #include <QUuid>
+
+#include <algorithm>
+#include <cmath>
 
 namespace {
 
@@ -190,6 +195,8 @@ bool ProjectManager::newProject(const QString& parentDirectory,
     m_manifest = manifest;
     m_projectDirectory = workspace.absolutePath();
     m_deviceMarkerModel.clear();
+    m_gaugeAssetModel.clear();
+    m_inspectionRecordModel.clear();
     emit projectChanged();
     return true;
 }
@@ -237,9 +244,55 @@ bool ProjectManager::openProject(const QString& fileOrDirectory, QString* error)
         return false;
     }
 
+    QString gaugeError;
+    const std::optional<GaugeAssetModel> gaugeModel =
+        GaugeAssetModel::fromJson(openedManifest.gaugeAssets(), &gaugeError);
+    if (!gaugeModel.has_value()) {
+        if (error != nullptr) {
+            *error = QStringLiteral("project.json gaugeAssets 无效: %1").arg(gaugeError);
+        }
+        return false;
+    }
+    if (!validateGaugeBindings(*markerModel, *gaugeModel, &gaugeError)) {
+        if (error != nullptr) {
+            *error = gaugeError;
+        }
+        return false;
+    }
+
+    QString recordError;
+    const std::optional<InspectionRecordModel> recordModel =
+        InspectionRecordModel::fromJson(openedManifest.inspectionRecords(), &recordError);
+    if (!recordModel.has_value()) {
+        if (error != nullptr) {
+            *error = QStringLiteral("project.json inspectionRecords 无效: %1").arg(recordError);
+        }
+        return false;
+    }
+    QString imageError;
+    const QList<AssetRecord> imageAssets = openedManifest.imageAssetRecords(&imageError);
+    if (!imageError.isEmpty()) {
+        if (error != nullptr) {
+            *error = imageError;
+        }
+        return false;
+    }
+    if (!validateInspectionBindings(*markerModel,
+                                    *gaugeModel,
+                                    *recordModel,
+                                    imageAssets,
+                                    &recordError)) {
+        if (error != nullptr) {
+            *error = recordError;
+        }
+        return false;
+    }
+
     m_manifest = openedManifest;
     m_projectDirectory = QFileInfo(manifestPath).absolutePath();
     m_deviceMarkerModel = *markerModel;
+    m_gaugeAssetModel = *gaugeModel;
+    m_inspectionRecordModel = *recordModel;
     if (openedManifest.latestReconstructionTask().isEmpty()) {
         // No task metadata is a valid Stage 3 state for an otherwise openable project.
     } else if (openedManifest.reconstructionState() == QStringLiteral("interrupted")) {
@@ -264,6 +317,8 @@ void ProjectManager::closeProject()
     m_manifest.reset();
     m_projectDirectory.clear();
     m_deviceMarkerModel.clear();
+    m_gaugeAssetModel.clear();
+    m_inspectionRecordModel.clear();
     emit projectChanged();
 }
 
@@ -277,6 +332,8 @@ bool ProjectManager::saveProject(QString* error)
     }
 
     m_manifest->setDeviceMarkers(m_deviceMarkerModel.toJson());
+    m_manifest->setGaugeAssets(m_gaugeAssetModel.toJson());
+    m_manifest->setInspectionRecords(m_inspectionRecordModel.toJson());
     m_manifest->setModifiedAt(QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
     return m_manifest->save(QDir(m_projectDirectory).filePath(QStringLiteral("project.json")), error);
 }
@@ -457,6 +514,14 @@ bool ProjectManager::removeAsset(const QString& assetId, QString* error)
     if (!selected.has_value()) {
         if (error != nullptr) {
             *error = QStringLiteral("未找到要删除的图像资产: %1").arg(assetId);
+        }
+        return false;
+    }
+
+    if (m_inspectionRecordModel.referencesImageAsset(assetId)) {
+        if (error != nullptr) {
+            *error = QStringLiteral("图像资产仍被巡检历史引用，不能删除: %1")
+                         .arg(assetId.trimmed());
         }
         return false;
     }
@@ -712,7 +777,295 @@ bool ProjectManager::removeDeviceMarker(const QString& id, QString* error)
     if (!candidate.remove(id, error)) {
         return false;
     }
-    return persistMarkerModel(candidate, error);
+    GaugeAssetModel candidateGauges = m_gaugeAssetModel;
+    InspectionRecordModel candidateRecords = m_inspectionRecordModel;
+    const std::optional<GaugeAsset> boundGauge = candidateGauges.findByMarkerId(id);
+    if (boundGauge.has_value()) {
+        QString gaugeError;
+        if (!candidateGauges.remove(boundGauge->id, &gaugeError)) {
+            if (error != nullptr) {
+                *error = gaugeError;
+            }
+            return false;
+        }
+        candidateRecords.removeForGauge(boundGauge->id);
+    }
+    return persistModels(candidate, candidateGauges, candidateRecords, error);
+}
+
+const GaugeAssetModel& ProjectManager::gaugeAssetModel() const
+{
+    return m_gaugeAssetModel;
+}
+
+QList<GaugeAsset> ProjectManager::gaugeAssets() const
+{
+    return m_gaugeAssetModel.list();
+}
+
+std::optional<GaugeAsset> ProjectManager::gaugeAssetById(const QString& id) const
+{
+    return m_gaugeAssetModel.findById(id);
+}
+
+std::optional<GaugeAsset> ProjectManager::gaugeAssetForMarker(const QString& deviceMarkerId) const
+{
+    return m_gaugeAssetModel.findByMarkerId(deviceMarkerId);
+}
+
+std::optional<GaugeAsset> ProjectManager::gaugeAssetByMarkerId(
+    const QString& deviceMarkerId) const
+{
+    return gaugeAssetForMarker(deviceMarkerId);
+}
+
+bool ProjectManager::addGaugeAsset(const GaugeAsset& asset, QString* error)
+{
+    if (!hasProject()) {
+        if (error != nullptr) {
+            *error = QStringLiteral("当前没有打开的项目，无法添加仪表资产。");
+        }
+        return false;
+    }
+    GaugeAsset normalized = asset;
+    normalized.id = normalized.id.trimmed();
+    normalized.deviceMarkerId = normalized.deviceMarkerId.trimmed();
+    normalized.name = normalized.name.trimmed();
+    normalized.unit = normalized.unit.trimmed();
+    normalized.gaugeProfileId = normalized.gaugeProfileId.trimmed();
+    const QString markerId = normalized.deviceMarkerId;
+    if (!m_deviceMarkerModel.contains(markerId)) {
+        if (error != nullptr) {
+            *error = QStringLiteral("未找到要绑定的 DeviceMarker: %1").arg(markerId);
+        }
+        return false;
+    }
+
+    GaugeAssetModel candidate = m_gaugeAssetModel;
+    if (!candidate.add(normalized, error)) {
+        return false;
+    }
+    return persistModels(m_deviceMarkerModel, candidate, error);
+}
+
+bool ProjectManager::addGaugeAsset(const QString& deviceMarkerId,
+                                   const QString& name,
+                                   double rangeMin,
+                                   double rangeMax,
+                                   const QString& unit,
+                                   GaugeAsset* createdAsset,
+                                   QString* error)
+{
+    const GaugeAsset asset =
+        GaugeAsset::create(deviceMarkerId, name, rangeMin, rangeMax, unit);
+    if (!addGaugeAsset(asset, error)) {
+        return false;
+    }
+    if (createdAsset != nullptr) {
+        *createdAsset = asset;
+    }
+    return true;
+}
+
+bool ProjectManager::addGaugeAsset(const QString& deviceMarkerId,
+                                   const QString& name,
+                                   double rangeMin,
+                                   double rangeMax,
+                                   const QString& unit,
+                                   QString* error)
+{
+    return addGaugeAsset(deviceMarkerId,
+                         name,
+                         rangeMin,
+                         rangeMax,
+                         unit,
+                         nullptr,
+                         error);
+}
+
+bool ProjectManager::updateGaugeAsset(const GaugeAsset& asset, QString* error)
+{
+    if (!hasProject()) {
+        if (error != nullptr) {
+            *error = QStringLiteral("当前没有打开的项目，无法更新仪表资产。");
+        }
+        return false;
+    }
+    const std::optional<GaugeAsset> existing = m_gaugeAssetModel.findById(asset.id);
+    if (!existing.has_value()) {
+        if (error != nullptr) {
+            *error = QStringLiteral("未找到 GaugeAsset: %1").arg(asset.id.trimmed());
+        }
+        return false;
+    }
+    if (existing->deviceMarkerId != asset.deviceMarkerId.trimmed()) {
+        if (error != nullptr) {
+            *error = QStringLiteral("GaugeAsset 的 deviceMarkerId 不能通过普通编辑修改。");
+        }
+        return false;
+    }
+
+    GaugeAsset normalized = asset;
+    normalized.id = existing->id;
+    normalized.deviceMarkerId = existing->deviceMarkerId;
+    normalized.name = normalized.name.trimmed();
+    normalized.unit = normalized.unit.trimmed();
+    normalized.gaugeProfileId = normalized.gaugeProfileId.trimmed();
+    if (!m_deviceMarkerModel.contains(normalized.deviceMarkerId)) {
+        if (error != nullptr) {
+            *error = QStringLiteral("GaugeAsset 绑定的 DeviceMarker 不存在: %1")
+                         .arg(normalized.deviceMarkerId);
+        }
+        return false;
+    }
+    GaugeAssetModel candidate = m_gaugeAssetModel;
+    if (!candidate.update(normalized, error)) {
+        return false;
+    }
+    return persistModels(m_deviceMarkerModel, candidate, error);
+}
+
+bool ProjectManager::removeGaugeAsset(const QString& id, QString* error)
+{
+    if (!hasProject()) {
+        if (error != nullptr) {
+            *error = QStringLiteral("当前没有打开的项目，无法删除仪表资产。");
+        }
+        return false;
+    }
+    GaugeAssetModel candidate = m_gaugeAssetModel;
+    if (!candidate.remove(id, error)) {
+        return false;
+    }
+    InspectionRecordModel candidateRecords = m_inspectionRecordModel;
+    candidateRecords.removeForGauge(id);
+    return persistModels(m_deviceMarkerModel, candidate, candidateRecords, error);
+}
+
+const InspectionRecordModel& ProjectManager::inspectionRecordModel() const
+{
+    return m_inspectionRecordModel;
+}
+
+QList<InspectionRecord> ProjectManager::inspectionRecords() const
+{
+    return m_inspectionRecordModel.all();
+}
+
+QList<InspectionRecord> ProjectManager::inspectionRecordsForGauge(
+    const QString& gaugeAssetId) const
+{
+    return m_inspectionRecordModel.recordsForGauge(gaugeAssetId);
+}
+
+std::optional<InspectionRecord> ProjectManager::inspectionRecordById(const QString& id) const
+{
+    return m_inspectionRecordModel.findById(id);
+}
+
+bool ProjectManager::recordGaugeReading(const QString& assetId,
+                                        double value,
+                                        const QDateTime& timestamp,
+                                        GaugeDataSource source,
+                                        QString* error)
+{
+    return recordGaugeReading(assetId, value, timestamp, source, QString(), error);
+}
+
+bool ProjectManager::recordGaugeReading(const QString& assetId,
+                                        double value,
+                                        const QDateTime& timestamp,
+                                        GaugeDataSource source,
+                                        const QString& imageAssetId,
+                                        QString* error)
+{
+    if (!hasProject()) {
+        if (error != nullptr) {
+            *error = QStringLiteral("当前没有打开的项目，无法更新仪表读数。");
+        }
+        return false;
+    }
+    if (!std::isfinite(value)) {
+        if (error != nullptr) {
+            *error = QStringLiteral("仪表读数必须是有限数字。");
+        }
+        return false;
+    }
+    if (!timestamp.isValid()) {
+        if (error != nullptr) {
+            *error = QStringLiteral("仪表读数时间戳无效。");
+        }
+        return false;
+    }
+    if (source == GaugeDataSource::None) {
+        if (error != nullptr) {
+            *error = QStringLiteral("更新仪表读数时 dataSource 不能为 None。");
+        }
+        return false;
+    }
+
+    const std::optional<GaugeAsset> existing = m_gaugeAssetModel.findById(assetId);
+    if (!existing.has_value()) {
+        if (error != nullptr) {
+            *error = QStringLiteral("未找到 GaugeAsset: %1").arg(assetId.trimmed());
+        }
+        return false;
+    }
+
+    QString normalizedImageAssetId = imageAssetId.trimmed();
+    QString sourceImagePath;
+    if (!normalizedImageAssetId.isEmpty()) {
+        const std::optional<AssetRecord> imageAsset = assetById(normalizedImageAssetId);
+        if (!imageAsset.has_value()) {
+            if (error != nullptr) {
+                *error = QStringLiteral("巡检图片 ImageAsset 不存在: %1")
+                             .arg(normalizedImageAssetId);
+            }
+            return false;
+        }
+        sourceImagePath = imageAsset->relativePath;
+    }
+
+    const InspectionRecord record = InspectionRecord::create(existing->id,
+                                                             value,
+                                                             timestamp.toUTC(),
+                                                             source,
+                                                             normalizedImageAssetId,
+                                                             sourceImagePath);
+    InspectionRecordModel candidateRecords = m_inspectionRecordModel;
+    if (!candidateRecords.add(record, error)) {
+        return false;
+    }
+
+    GaugeAssetModel candidateGauges = m_gaugeAssetModel;
+    GaugeAsset updated = *existing;
+    const QList<InspectionRecord> history = candidateRecords.recordsForGauge(existing->id);
+    if (history.isEmpty()) {
+        if (error != nullptr) {
+            *error = QStringLiteral("巡检记录写入后未找到对应 GaugeAsset 历史。 ").trimmed();
+        }
+        return false;
+    }
+    const InspectionRecord& latest = history.first();
+    if (!updated.latestTimestamp.has_value()
+        || latest.timestamp >= updated.latestTimestamp.value()) {
+        updated.latestValue = latest.value;
+        updated.latestTimestamp = latest.timestamp.toUTC();
+        updated.dataSource = latest.dataSource;
+    }
+    if (!candidateGauges.update(updated, error)) {
+        return false;
+    }
+    return persistModels(m_deviceMarkerModel, candidateGauges, candidateRecords, error);
+}
+
+bool ProjectManager::updateGaugeReading(const QString& assetId,
+                                        double value,
+                                        const QDateTime& timestamp,
+                                        GaugeDataSource source,
+                                        QString* error)
+{
+    return recordGaugeReading(assetId, value, timestamp, source, QString(), error);
 }
 
 bool ProjectManager::markInterruptedTask(ProjectManifest* manifest, QString* error) const
@@ -751,6 +1104,8 @@ bool ProjectManager::persistManifest(ProjectManifest manifest, QString* error)
         return false;
     }
     manifest.setDeviceMarkers(m_deviceMarkerModel.toJson());
+    manifest.setGaugeAssets(m_gaugeAssetModel.toJson());
+    manifest.setInspectionRecords(m_inspectionRecordModel.toJson());
     manifest.setModifiedAt(QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
     const QString manifestPath = QDir(m_projectDirectory).filePath(QStringLiteral("project.json"));
     if (!manifest.save(manifestPath, error)) {
@@ -763,23 +1118,148 @@ bool ProjectManager::persistManifest(ProjectManifest manifest, QString* error)
 
 bool ProjectManager::persistMarkerModel(const DeviceMarkerModel& model, QString* error)
 {
+    return persistModels(model, m_gaugeAssetModel, error);
+}
+
+bool ProjectManager::persistModels(const DeviceMarkerModel& markerModel,
+                                   const GaugeAssetModel& gaugeModel,
+                                   QString* error)
+{
+    return persistModels(markerModel, gaugeModel, m_inspectionRecordModel, error);
+}
+
+bool ProjectManager::persistModels(const DeviceMarkerModel& markerModel,
+                                   const GaugeAssetModel& gaugeModel,
+                                   const InspectionRecordModel& recordModel,
+                                   QString* error)
+{
     if (!m_manifest.has_value() || m_projectDirectory.isEmpty()) {
         if (error != nullptr) {
-            *error = QStringLiteral("当前没有打开的项目，无法保存设备标记。 ").trimmed();
+            *error = QStringLiteral("当前没有打开的项目，无法保存项目设备数据。");
         }
+        return false;
+    }
+    if (!validateGaugeBindings(markerModel, gaugeModel, error)) {
+        return false;
+    }
+    QString imageError;
+    const QList<AssetRecord> imageAssets = m_manifest->imageAssetRecords(&imageError);
+    if (!imageError.isEmpty()) {
+        if (error != nullptr) {
+            *error = imageError;
+        }
+        return false;
+    }
+    if (!validateInspectionBindings(markerModel,
+                                    gaugeModel,
+                                    recordModel,
+                                    imageAssets,
+                                    error)) {
         return false;
     }
 
     ProjectManifest candidate = *m_manifest;
-    candidate.setDeviceMarkers(model.toJson());
+    candidate.setDeviceMarkers(markerModel.toJson());
+    candidate.setGaugeAssets(gaugeModel.toJson());
+    candidate.setInspectionRecords(recordModel.toJson());
     candidate.setModifiedAt(QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
     const QString manifestPath = QDir(m_projectDirectory).filePath(QStringLiteral("project.json"));
     if (!candidate.save(manifestPath, error)) {
         return false;
     }
     m_manifest = candidate;
-    m_deviceMarkerModel = model;
+    m_deviceMarkerModel = markerModel;
+    m_gaugeAssetModel = gaugeModel;
+    m_inspectionRecordModel = recordModel;
     emit projectChanged();
+    return true;
+}
+
+bool ProjectManager::validateGaugeBindings(const DeviceMarkerModel& markerModel,
+                                           const GaugeAssetModel& gaugeModel,
+                                           QString* error) const
+{
+    for (const GaugeAsset& asset : gaugeModel.list()) {
+        if (!markerModel.contains(asset.deviceMarkerId)) {
+            if (error != nullptr) {
+                *error = QStringLiteral("GaugeAsset %1 绑定了不存在的 DeviceMarker: %2")
+                             .arg(asset.id, asset.deviceMarkerId);
+            }
+            return false;
+        }
+        if (asset.gaugeProfileId.trimmed().isEmpty()) {
+            continue;
+        }
+        const std::optional<GaugeProfile> profile =
+            builtInGaugeProfile(asset.gaugeProfileId);
+        if (!profile.has_value()) {
+            if (error != nullptr) {
+                *error = QStringLiteral("GaugeAsset %1 引用了未知 GaugeProfile: %2")
+                             .arg(asset.id, asset.gaugeProfileId);
+            }
+            return false;
+        }
+        if (asset.unit.trimmed().compare(profile->unit.trimmed(), Qt::CaseInsensitive) != 0
+            || std::abs(asset.rangeMin - profile->rangeMin) > 1.0e-9
+            || std::abs(asset.rangeMax - profile->rangeMax) > 1.0e-9) {
+            if (error != nullptr) {
+                *error = QStringLiteral(
+                             "GaugeAsset %1 与 GaugeProfile %2 的 unit/range 不一致: asset=%3 %4~%5, profile=%6 %7~%8")
+                             .arg(asset.id,
+                                  profile->id,
+                                  asset.unit,
+                                  QString::number(asset.rangeMin, 'g', 15),
+                                  QString::number(asset.rangeMax, 'g', 15),
+                                  profile->unit,
+                                  QString::number(profile->rangeMin, 'g', 15),
+                                  QString::number(profile->rangeMax, 'g', 15));
+            }
+            return false;
+        }
+    }
+    return true;
+}
+
+bool ProjectManager::validateInspectionBindings(
+    const DeviceMarkerModel& markerModel,
+    const GaugeAssetModel& gaugeModel,
+    const InspectionRecordModel& recordModel,
+    const QList<AssetRecord>& imageAssets,
+    QString* error) const
+{
+    Q_UNUSED(markerModel)
+    for (const InspectionRecord& record : recordModel.all()) {
+        if (!gaugeModel.contains(record.gaugeAssetId)) {
+            if (error != nullptr) {
+                *error = QStringLiteral("InspectionRecord %1 引用了不存在的 GaugeAsset: %2")
+                             .arg(record.id, record.gaugeAssetId);
+            }
+            return false;
+        }
+        if (record.imageAssetId.trimmed().isEmpty()) {
+            continue;
+        }
+        const auto imageIt = std::find_if(
+            imageAssets.cbegin(), imageAssets.cend(), [&record](const AssetRecord& asset) {
+                return asset.id == record.imageAssetId;
+            });
+        if (imageIt == imageAssets.cend()) {
+            if (error != nullptr) {
+                *error = QStringLiteral("InspectionRecord %1 引用了不存在的 ImageAsset: %2")
+                             .arg(record.id, record.imageAssetId);
+            }
+            return false;
+        }
+        if (!record.sourceImagePath.trimmed().isEmpty()
+            && QDir::fromNativeSeparators(record.sourceImagePath)
+                   != QDir::fromNativeSeparators(imageIt->relativePath)) {
+            if (error != nullptr) {
+                *error = QStringLiteral("InspectionRecord %1 的 sourceImagePath 与 ImageAsset 不一致。")
+                             .arg(record.id);
+            }
+            return false;
+        }
+    }
     return true;
 }
 

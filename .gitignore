@@ -7,6 +7,25 @@ app/build/
 *.suo
 *.user
 *.VC.db
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.ninja
+*.obj
+*.ilk
+*.pdb
+*.lib
+*.dll
+*.exe
+*.7z
+*.zip
+*.tar
+*.gz
+CMakeFiles/
+CTestTestfile.cmake
+cmake_install.cmake
+Testing/
 
 # Local configuration
 CMakeUserPresets.json
@@ -38,15 +57,13 @@ models/
 *.pth
 *.onnx
 *.engine
+*.ply
+*.pcd
+*.las
 
 # Local project workspaces and external runtime/source
-25量程/
-gauge_stage4a/
-P0/
-workspace_test/
-third_party_eval/
-colmap-x64-windows-cuda*/
-_temp/
+local_workspaces/
+external_runtime/
 
 # Explicitly keep public source and documentation trees visible
 !app/src/

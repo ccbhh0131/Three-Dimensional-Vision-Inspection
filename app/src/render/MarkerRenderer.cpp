@@ -4,6 +4,7 @@
 #include <QOpenGLFunctions_3_3_Core>
 #include <QOpenGLVersionFunctionsFactory>
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <vector>
@@ -20,15 +21,17 @@ struct GPUMarker
     float green = 0.2f;
     float blue = 0.05f;
     float alpha = 1.0f;
+    float pointSize = 14.0f;
 };
 
-static_assert(sizeof(GPUMarker) == 28, "GPUMarker layout must remain 28 bytes");
+static_assert(sizeof(GPUMarker) == 32, "GPUMarker layout must remain 32 bytes");
 
 constexpr char kVertexShader[] = R"GLSL(
 #version 330 core
 
 layout(location = 0) in vec3 aPosition;
 layout(location = 1) in vec4 aColor;
+layout(location = 2) in float aPointSize;
 
 uniform mat4 uModel;
 uniform mat4 uView;
@@ -40,7 +43,7 @@ out vec4 vColor;
 void main()
 {
     gl_Position = uProjection * uView * uModel * vec4(aPosition, 1.0);
-    gl_PointSize = uPointSize;
+    gl_PointSize = max(uPointSize, aPointSize);
     vColor = aColor;
 }
 )GLSL";
@@ -92,6 +95,40 @@ bool isFinitePosition(const QVector3D& position)
     return std::isfinite(position.x())
         && std::isfinite(position.y())
         && std::isfinite(position.z());
+}
+
+void applyVisualState(DeviceMarkerVisualState state, GPUMarker* marker)
+{
+    if (marker == nullptr) {
+        return;
+    }
+    switch (state) {
+    case DeviceMarkerVisualState::Default:
+        marker->red = 1.0f;
+        marker->green = 0.2f;
+        marker->blue = 0.05f;
+        break;
+    case DeviceMarkerVisualState::Unknown:
+        marker->red = 0.55f;
+        marker->green = 0.60f;
+        marker->blue = 0.66f;
+        break;
+    case DeviceMarkerVisualState::Normal:
+        marker->red = 0.12f;
+        marker->green = 0.82f;
+        marker->blue = 0.28f;
+        break;
+    case DeviceMarkerVisualState::Warning:
+        marker->red = 1.0f;
+        marker->green = 0.72f;
+        marker->blue = 0.04f;
+        break;
+    case DeviceMarkerVisualState::Alarm:
+        marker->red = 0.95f;
+        marker->green = 0.08f;
+        marker->blue = 0.06f;
+        break;
+    }
 }
 
 } // namespace
@@ -237,10 +274,12 @@ bool MarkerRenderer::uploadMarkers()
         gpuMarker.px = marker.worldPosition.x();
         gpuMarker.py = marker.worldPosition.y();
         gpuMarker.pz = marker.worldPosition.z();
+        applyVisualState(marker.visualState, &gpuMarker);
         if (marker.selected) {
-            gpuMarker.red = 1.0f;
-            gpuMarker.green = 0.85f;
-            gpuMarker.blue = 0.05f;
+            gpuMarker.red = std::min(1.0f, gpuMarker.red + 0.25f);
+            gpuMarker.green = std::min(1.0f, gpuMarker.green + 0.25f);
+            gpuMarker.blue = std::min(1.0f, gpuMarker.blue + 0.25f);
+            gpuMarker.pointSize = 20.0f;
         }
         gpuMarkers.push_back(gpuMarker);
     }
@@ -274,6 +313,13 @@ bool MarkerRenderer::uploadMarkers()
                                        GL_FALSE,
                                        sizeof(GPUMarker),
                                        reinterpret_cast<const void*>(3 * sizeof(float)));
+    m_functions->glEnableVertexAttribArray(2);
+    m_functions->glVertexAttribPointer(2,
+                                       1,
+                                       GL_FLOAT,
+                                       GL_FALSE,
+                                       sizeof(GPUMarker),
+                                       reinterpret_cast<const void*>(7 * sizeof(float)));
     m_functions->glBindBuffer(GL_ARRAY_BUFFER, 0);
     m_functions->glBindVertexArray(0);
     const quint32 error = takeGlError();

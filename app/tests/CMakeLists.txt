@@ -4,6 +4,13 @@ add_executable(test_project_manifest
     test_project_manifest.cpp
     ../src/core/assets/AssetRecord.cpp
     ../src/core/assets/AssetRecord.h
+    ../src/core/device/GaugeAsset.cpp
+    ../src/core/device/GaugeAsset.h
+    ../src/core/device/GaugeStatus.h
+    ../src/core/device/GaugeProfile.cpp
+    ../src/core/device/GaugeProfile.h
+    ../src/core/inspection/InspectionRecord.cpp
+    ../src/core/inspection/InspectionRecord.h
     ../src/core/project/ProjectManifest.cpp
     ../src/core/project/ProjectManifest.h
     ../src/core/reconstruction/ReconstructionTask.cpp
@@ -51,6 +58,13 @@ add_executable(test_project_manager
     test_project_manager.cpp
     ../src/core/device/DeviceMarker.cpp
     ../src/core/device/DeviceMarker.h
+    ../src/core/device/GaugeAsset.cpp
+    ../src/core/device/GaugeAsset.h
+    ../src/core/device/GaugeStatus.h
+    ../src/core/device/GaugeProfile.cpp
+    ../src/core/device/GaugeProfile.h
+    ../src/core/inspection/InspectionRecord.cpp
+    ../src/core/inspection/InspectionRecord.h
     ../src/core/assets/AssetRecord.cpp
     ../src/core/assets/AssetRecord.h
     ../src/core/project/ProjectManager.cpp
@@ -84,6 +98,21 @@ add_executable(test_main_window
     ../src/core/process/ProcessRunner.h
     ../src/core/device/DeviceMarker.cpp
     ../src/core/device/DeviceMarker.h
+    ../src/core/device/GaugeAsset.cpp
+    ../src/core/device/GaugeAsset.h
+    ../src/core/device/GaugeStatus.h
+    ../src/core/realtime/GaugeDataSource.cpp
+    ../src/core/realtime/GaugeDataSource.h
+    ../src/core/realtime/ModbusTcpGaugeDataSource.cpp
+    ../src/core/realtime/ModbusTcpGaugeDataSource.h
+    ../src/core/realtime/GaugeLiveState.cpp
+    ../src/core/realtime/GaugeLiveState.h
+    ../src/core/realtime/RealtimeMonitoringController.cpp
+    ../src/core/realtime/RealtimeMonitoringController.h
+    ../src/core/device/GaugeProfile.cpp
+    ../src/core/device/GaugeProfile.h
+    ../src/core/inspection/InspectionRecord.cpp
+    ../src/core/inspection/InspectionRecord.h
     ../src/core/reconstruction/ReconstructionArtifactValidator.cpp
     ../src/core/reconstruction/ReconstructionArtifactValidator.h
     ../src/core/reconstruction/ReconstructionController.cpp
@@ -102,6 +131,10 @@ add_executable(test_main_window
     ../src/widgets/BackendPanel.h
     ../src/widgets/DeveloperSettingsDialog.cpp
     ../src/widgets/DeveloperSettingsDialog.h
+    ../src/widgets/GaugeAssetDialog.cpp
+    ../src/widgets/GaugeAssetDialog.h
+    ../src/widgets/GaugeStatusRuleDialog.cpp
+    ../src/widgets/GaugeStatusRuleDialog.h
     ../src/widgets/ImageAssetModel.cpp
     ../src/widgets/ImageAssetModel.h
     ../src/widgets/ImageBrowserPanel.cpp
@@ -135,26 +168,145 @@ add_executable(test_main_window
     ../src/render/MarkerRenderer.h
     ../src/widgets/ModelViewerWidget.cpp
     ../src/widgets/ModelViewerWidget.h
+    ../src/core/vision/VisualGaugeReader.cpp
+    ../src/core/vision/VisualGaugeReader.h
+    ../src/widgets/VisualGaugeReadingDialog.cpp
+    ../src/widgets/VisualGaugeReadingDialog.h
 )
 target_compile_features(test_main_window PRIVATE cxx_std_17)
 if(MSVC)
     target_compile_options(test_main_window PRIVATE /FS)
 endif()
-target_include_directories(test_main_window PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
+target_include_directories(test_main_window PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/../src"
+    ${OpenCV_INCLUDE_DIRS}
+)
 target_link_libraries(test_main_window PRIVATE
     Qt6::Core
     Qt6::Gui
     Qt6::Widgets
     Qt6::OpenGL
     Qt6::OpenGLWidgets
+    Qt6::Network
+    Qt6::SerialBus
     Qt6::Test
+    ${OpenCV_LIBS}
 )
 add_test(NAME main_window_probe COMMAND test_main_window)
+
+add_executable(test_gauge_status
+    test_gauge_status.cpp
+    ../src/core/device/GaugeAsset.cpp
+    ../src/core/device/GaugeAsset.h
+    ../src/core/device/GaugeStatus.h
+)
+target_compile_features(test_gauge_status PRIVATE cxx_std_17)
+if(MSVC)
+    target_compile_options(test_gauge_status PRIVATE /FS)
+endif()
+target_include_directories(test_gauge_status PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
+target_link_libraries(test_gauge_status PRIVATE Qt6::Core Qt6::Test)
+add_test(NAME gauge_status COMMAND test_gauge_status)
+
+add_executable(test_realtime_monitoring
+    test_realtime_monitoring.cpp
+    ../src/core/realtime/GaugeDataSource.cpp
+    ../src/core/realtime/GaugeDataSource.h
+    ../src/core/realtime/ModbusTcpGaugeDataSource.cpp
+    ../src/core/realtime/ModbusTcpGaugeDataSource.h
+    ../src/core/realtime/GaugeLiveState.cpp
+    ../src/core/realtime/GaugeLiveState.h
+    ../src/core/realtime/RealtimeMonitoringController.cpp
+    ../src/core/realtime/RealtimeMonitoringController.h
+    ../src/core/device/DeviceMarker.cpp
+    ../src/core/device/DeviceMarker.h
+    ../src/core/device/GaugeAsset.cpp
+    ../src/core/device/GaugeAsset.h
+    ../src/core/device/GaugeStatus.h
+    ../src/core/device/GaugeProfile.cpp
+    ../src/core/device/GaugeProfile.h
+    ../src/core/inspection/InspectionRecord.cpp
+    ../src/core/inspection/InspectionRecord.h
+    ../src/core/assets/AssetRecord.cpp
+    ../src/core/assets/AssetRecord.h
+    ../src/core/project/ProjectManager.cpp
+    ../src/core/project/ProjectManager.h
+    ../src/core/project/ProjectManifest.cpp
+    ../src/core/project/ProjectManifest.h
+    ../src/core/reconstruction/ReconstructionTask.cpp
+    ../src/core/reconstruction/ReconstructionTask.h
+)
+target_compile_features(test_realtime_monitoring PRIVATE cxx_std_17)
+if(MSVC)
+    target_compile_options(test_realtime_monitoring PRIVATE /FS)
+endif()
+target_include_directories(test_realtime_monitoring PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/../src"
+)
+target_link_libraries(test_realtime_monitoring PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Network
+    Qt6::SerialBus
+    Qt6::Test
+)
+add_test(NAME realtime_monitoring COMMAND test_realtime_monitoring)
+
+add_executable(test_modbus_tcp_data_source
+    test_modbus_tcp_data_source.cpp
+    ../src/core/realtime/GaugeDataSource.cpp
+    ../src/core/realtime/GaugeDataSource.h
+    ../src/core/realtime/GaugeLiveState.cpp
+    ../src/core/realtime/GaugeLiveState.h
+    ../src/core/realtime/ModbusTcpGaugeDataSource.cpp
+    ../src/core/realtime/ModbusTcpGaugeDataSource.h
+    ../src/core/realtime/RealtimeMonitoringController.cpp
+    ../src/core/realtime/RealtimeMonitoringController.h
+    ../src/core/device/DeviceMarker.cpp
+    ../src/core/device/DeviceMarker.h
+    ../src/core/device/GaugeAsset.cpp
+    ../src/core/device/GaugeAsset.h
+    ../src/core/device/GaugeStatus.h
+    ../src/core/device/ModbusTcpBinding.h
+    ../src/core/device/GaugeProfile.cpp
+    ../src/core/device/GaugeProfile.h
+    ../src/core/inspection/InspectionRecord.cpp
+    ../src/core/inspection/InspectionRecord.h
+    ../src/core/assets/AssetRecord.cpp
+    ../src/core/assets/AssetRecord.h
+    ../src/core/project/ProjectManager.cpp
+    ../src/core/project/ProjectManager.h
+    ../src/core/project/ProjectManifest.cpp
+    ../src/core/project/ProjectManifest.h
+    ../src/core/reconstruction/ReconstructionTask.cpp
+    ../src/core/reconstruction/ReconstructionTask.h
+)
+target_compile_features(test_modbus_tcp_data_source PRIVATE cxx_std_17)
+if(MSVC)
+    target_compile_options(test_modbus_tcp_data_source PRIVATE /FS)
+endif()
+target_include_directories(test_modbus_tcp_data_source PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/../src"
+)
+target_link_libraries(test_modbus_tcp_data_source PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Network
+    Qt6::SerialBus
+    Qt6::Test
+)
+add_test(NAME modbus_tcp_data_source COMMAND test_modbus_tcp_data_source)
 
 add_executable(test_image_assets
     test_image_assets.cpp
     ../src/core/device/DeviceMarker.cpp
     ../src/core/device/DeviceMarker.h
+    ../src/core/device/GaugeAsset.cpp
+    ../src/core/device/GaugeAsset.h
+    ../src/core/device/GaugeProfile.cpp
+    ../src/core/device/GaugeProfile.h
+    ../src/core/inspection/InspectionRecord.cpp
+    ../src/core/inspection/InspectionRecord.h
     ../src/backend/BackendProbeResult.h
     ../src/backend/ReconstructionBackend.h
     ../src/backend/ColmapBackend.cpp
@@ -196,6 +348,12 @@ add_executable(test_reconstruction
     test_reconstruction.cpp
     ../src/core/device/DeviceMarker.cpp
     ../src/core/device/DeviceMarker.h
+    ../src/core/device/GaugeAsset.cpp
+    ../src/core/device/GaugeAsset.h
+    ../src/core/device/GaugeProfile.cpp
+    ../src/core/device/GaugeProfile.h
+    ../src/core/inspection/InspectionRecord.cpp
+    ../src/core/inspection/InspectionRecord.h
     ../src/backend/BackendProbeResult.h
     ../src/backend/ReconstructionBackend.h
     ../src/backend/ColmapBackend.cpp
@@ -322,6 +480,12 @@ add_executable(test_device_marker
     test_device_marker.cpp
     ../src/core/device/DeviceMarker.cpp
     ../src/core/device/DeviceMarker.h
+    ../src/core/device/GaugeAsset.cpp
+    ../src/core/device/GaugeAsset.h
+    ../src/core/device/GaugeProfile.cpp
+    ../src/core/device/GaugeProfile.h
+    ../src/core/inspection/InspectionRecord.cpp
+    ../src/core/inspection/InspectionRecord.h
     ../src/core/assets/AssetRecord.cpp
     ../src/core/assets/AssetRecord.h
     ../src/core/project/ProjectManager.cpp
@@ -362,3 +526,123 @@ endif()
 target_include_directories(test_marker_hit_testing PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
 target_link_libraries(test_marker_hit_testing PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
 add_test(NAME marker_hit_testing COMMAND test_marker_hit_testing)
+
+add_executable(test_gauge_asset
+    test_gauge_asset.cpp
+    ../src/core/device/DeviceMarker.cpp
+    ../src/core/device/DeviceMarker.h
+    ../src/core/device/GaugeAsset.cpp
+    ../src/core/device/GaugeAsset.h
+    ../src/core/device/GaugeProfile.cpp
+    ../src/core/device/GaugeProfile.h
+    ../src/core/inspection/InspectionRecord.cpp
+    ../src/core/inspection/InspectionRecord.h
+    ../src/core/assets/AssetRecord.cpp
+    ../src/core/assets/AssetRecord.h
+    ../src/core/project/ProjectManager.cpp
+    ../src/core/project/ProjectManager.h
+    ../src/core/project/ProjectManifest.cpp
+    ../src/core/project/ProjectManifest.h
+    ../src/core/reconstruction/ReconstructionTask.cpp
+    ../src/core/reconstruction/ReconstructionTask.h
+)
+target_compile_features(test_gauge_asset PRIVATE cxx_std_17)
+if(MSVC)
+    target_compile_options(test_gauge_asset PRIVATE /FS)
+endif()
+target_include_directories(test_gauge_asset PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
+target_link_libraries(test_gauge_asset PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
+add_test(NAME gauge_asset COMMAND test_gauge_asset)
+
+add_executable(test_inspection_record
+    test_inspection_record.cpp
+    ../src/core/inspection/InspectionRecord.cpp
+    ../src/core/inspection/InspectionRecord.h
+    ../src/core/device/DeviceMarker.cpp
+    ../src/core/device/DeviceMarker.h
+    ../src/core/device/GaugeAsset.cpp
+    ../src/core/device/GaugeAsset.h
+    ../src/core/device/GaugeProfile.cpp
+    ../src/core/device/GaugeProfile.h
+    ../src/core/assets/AssetRecord.cpp
+    ../src/core/assets/AssetRecord.h
+    ../src/core/project/ProjectManager.cpp
+    ../src/core/project/ProjectManager.h
+    ../src/core/project/ProjectManifest.cpp
+    ../src/core/project/ProjectManifest.h
+    ../src/core/reconstruction/ReconstructionTask.cpp
+    ../src/core/reconstruction/ReconstructionTask.h
+)
+target_compile_features(test_inspection_record PRIVATE cxx_std_17)
+if(MSVC)
+    target_compile_options(test_inspection_record PRIVATE /FS)
+endif()
+target_include_directories(test_inspection_record PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/../src"
+)
+target_link_libraries(test_inspection_record PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
+add_test(NAME inspection_record COMMAND test_inspection_record)
+
+add_executable(test_gauge_profile
+    test_gauge_profile.cpp
+    ../src/core/device/GaugeProfile.cpp
+    ../src/core/device/GaugeProfile.h
+)
+target_compile_features(test_gauge_profile PRIVATE cxx_std_17)
+if(MSVC)
+    target_compile_options(test_gauge_profile PRIVATE /FS)
+endif()
+target_include_directories(test_gauge_profile PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
+target_link_libraries(test_gauge_profile PRIVATE Qt6::Core Qt6::Test)
+add_test(NAME gauge_profile COMMAND test_gauge_profile)
+
+add_executable(test_visual_gauge_reader
+    test_visual_gauge_reader.cpp
+    ../src/core/device/GaugeProfile.cpp
+    ../src/core/device/GaugeProfile.h
+    ../src/core/vision/VisualGaugeReader.cpp
+    ../src/core/vision/VisualGaugeReader.h
+)
+target_compile_features(test_visual_gauge_reader PRIVATE cxx_std_17)
+if(MSVC)
+    target_compile_options(test_visual_gauge_reader PRIVATE /FS)
+endif()
+target_include_directories(test_visual_gauge_reader PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/../src"
+    ${OpenCV_INCLUDE_DIRS}
+)
+target_link_libraries(test_visual_gauge_reader PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Test
+    ${OpenCV_LIBS}
+)
+add_test(NAME visual_gauge_reader COMMAND test_visual_gauge_reader)
+
+if(TARGET opencv_world)
+    get_target_property(_opencv_release_dll opencv_world IMPORTED_LOCATION_RELEASE)
+    get_target_property(_opencv_debug_dll opencv_world IMPORTED_LOCATION_DEBUG)
+elseif(TARGET opencv_core)
+    get_target_property(_opencv_release_dll opencv_core IMPORTED_LOCATION_RELEASE)
+    get_target_property(_opencv_debug_dll opencv_core IMPORTED_LOCATION_DEBUG)
+endif()
+if(_opencv_release_dll AND NOT _opencv_release_dll MATCHES "-NOTFOUND$")
+    add_custom_command(TARGET test_visual_gauge_reader POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+            "-DOPENCV_RELEASE_DLL=${_opencv_release_dll}"
+            "-DOPENCV_DEBUG_DLL=${_opencv_debug_dll}"
+            "-DTARGET_FILE_DIR=$<TARGET_FILE_DIR:test_visual_gauge_reader>"
+            "-DCONFIG=$<CONFIG>"
+            -P "${CMAKE_CURRENT_LIST_DIR}/../cmake/CopyOpenCVRuntime.cmake"
+        VERBATIM
+    )
+    add_custom_command(TARGET test_main_window POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+            "-DOPENCV_RELEASE_DLL=${_opencv_release_dll}"
+            "-DOPENCV_DEBUG_DLL=${_opencv_debug_dll}"
+            "-DTARGET_FILE_DIR=$<TARGET_FILE_DIR:test_main_window>"
+            "-DCONFIG=$<CONFIG>"
+            -P "${CMAKE_CURRENT_LIST_DIR}/../cmake/CopyOpenCVRuntime.cmake"
+        VERBATIM
+    )
+endif()

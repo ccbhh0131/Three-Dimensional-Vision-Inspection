@@ -2,6 +2,7 @@
 
 #include "backend/ColmapBackend.h"
 #include "core/device/DeviceMarker.h"
+#include "core/device/GaugeAsset.h"
 #include "core/geometry/SurfaceHit.h"
 #include "core/process/ProcessRunner.h"
 #include "core/project/ProjectManager.h"
@@ -22,6 +23,9 @@ class LogPanel;
 class ModelViewerWidget;
 class ProjectPanel;
 class ReconstructionPanel;
+namespace realtime {
+class RealtimeMonitoringController;
+}
 class MainWindow final : public QMainWindow
 {
     Q_OBJECT
@@ -56,6 +60,16 @@ private slots:
     void onMarkerSelected(const QString& markerId);
     void addDeviceMarker();
     void deleteDeviceMarker();
+    void createGaugeAsset();
+    void editGaugeAsset();
+    void updateGaugeReading();
+    void visualGaugeReading();
+    void showGaugeHistory();
+    void configureGaugeStatusRule();
+    void deleteGaugeAsset();
+    void startMockSensor();
+    void stopMockSensor();
+    void recordCurrentSensorSample();
     void refreshProjectView();
 
 private:
@@ -67,6 +81,7 @@ private:
     void clearViewerAssociation();
     void clearPendingSurfaceHit();
     void refreshMarkerPresentation();
+    void refreshSelectedMarkerDetails();
     void updateMarkerControls();
     void showImagePreview();
     void showProjectError(const QString& message);
@@ -84,6 +99,7 @@ private:
     LogPanel* m_logPanel;
     QLabel* m_statusLabel;
     ReconstructionController* m_reconstructionController;
+    realtime::RealtimeMonitoringController* m_realtimeMonitoringController;
     QAction* m_importImagesAction = nullptr;
     QAction* m_removeImageAction = nullptr;
     QString m_pendingBackendRoot;

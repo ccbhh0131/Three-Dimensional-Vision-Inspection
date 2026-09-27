@@ -10,6 +10,7 @@
 #include <QVector3D>
 #include <QVBoxLayout>
 
+
 namespace vision3d {
 
 namespace {
@@ -82,6 +83,22 @@ ReconstructionPanel::ReconstructionPanel(QWidget* parent)
     , m_markerLabel(new QLabel(QStringLiteral("暂无选中设备标记"), this))
     , m_addMarkerButton(new QPushButton(QStringLiteral("添加设备标记"), this))
     , m_deleteMarkerButton(new QPushButton(QStringLiteral("删除设备标记"), this))
+    , m_gaugeLabel(new QLabel(QStringLiteral("未绑定仪表"), this))
+    , m_createGaugeButton(new QPushButton(QStringLiteral("创建仪表资产"), this))
+    , m_editGaugeButton(new QPushButton(QStringLiteral("编辑仪表资产"), this))
+    , m_updateGaugeReadingButton(new QPushButton(QStringLiteral("手动更新读数"), this))
+    , m_visualGaugeReadingButton(new QPushButton(QStringLiteral("视觉读数"), this))
+    , m_viewGaugeHistoryButton(new QPushButton(QStringLiteral("查看巡检历史"), this))
+    , m_configureGaugeStatusRuleButton(new QPushButton(QStringLiteral("配置状态规则"), this))
+    , m_deleteGaugeButton(new QPushButton(QStringLiteral("删除仪表资产"), this))
+    , m_realtimeStateLabel(new QLabel(QStringLiteral("Stopped"), this))
+    , m_realtimeValueLabel(new QLabel(QStringLiteral("暂无"), this))
+    , m_realtimeTimestampLabel(new QLabel(QStringLiteral("暂无"), this))
+    , m_realtimeSourceLabel(new QLabel(QStringLiteral("-"), this))
+    , m_realtimeStatusLabel(new QLabel(QStringLiteral("未知"), this))
+    , m_startMockSensorButton(new QPushButton(QStringLiteral("启动模拟数据"), this))
+    , m_stopMockSensorButton(new QPushButton(QStringLiteral("停止"), this))
+    , m_recordCurrentSensorSampleButton(new QPushButton(QStringLiteral("记录当前值"), this))
 {
     auto* group = new QGroupBox(QStringLiteral("三维重建"), this);
     auto* form = new QFormLayout(group);
@@ -115,10 +132,52 @@ ReconstructionPanel::ReconstructionPanel(QWidget* parent)
     markerButtons->addStretch();
     markerLayout->addLayout(markerButtons);
 
+    auto* gaugeGroup = new QGroupBox(QStringLiteral("仪表资产"), this);
+    auto* gaugeLayout = new QVBoxLayout(gaugeGroup);
+    m_gaugeLabel->setObjectName(QStringLiteral("gaugeAssetDetailsLabel"));
+    m_gaugeLabel->setWordWrap(true);
+    gaugeLayout->addWidget(m_gaugeLabel);
+    auto* gaugeButtons = new QHBoxLayout;
+    gaugeButtons->addWidget(m_createGaugeButton);
+    gaugeButtons->addWidget(m_editGaugeButton);
+    gaugeButtons->addWidget(m_updateGaugeReadingButton);
+    gaugeButtons->addWidget(m_visualGaugeReadingButton);
+    gaugeButtons->addWidget(m_viewGaugeHistoryButton);
+    gaugeButtons->addWidget(m_configureGaugeStatusRuleButton);
+    gaugeButtons->addWidget(m_deleteGaugeButton);
+    gaugeButtons->addStretch();
+    gaugeLayout->addLayout(gaugeButtons);
+
+    auto* realtimeGroup = new QGroupBox(QStringLiteral("实时监控"), this);
+    realtimeGroup->setObjectName(QStringLiteral("realtimeMonitoringGroup"));
+    auto* realtimeForm = new QFormLayout(realtimeGroup);
+    m_realtimeStateLabel->setObjectName(QStringLiteral("realtimeMonitoringStateLabel"));
+    m_realtimeValueLabel->setObjectName(QStringLiteral("realtimeGaugeValueLabel"));
+    m_realtimeTimestampLabel->setObjectName(QStringLiteral("realtimeGaugeTimestampLabel"));
+    m_realtimeSourceLabel->setObjectName(QStringLiteral("realtimeGaugeSourceLabel"));
+    m_realtimeStatusLabel->setObjectName(QStringLiteral("realtimeGaugeStatusLabel"));
+    realtimeForm->addRow(QStringLiteral("状态:"), m_realtimeStateLabel);
+    realtimeForm->addRow(QStringLiteral("实时值:"), m_realtimeValueLabel);
+    realtimeForm->addRow(QStringLiteral("实时来源:"), m_realtimeSourceLabel);
+    realtimeForm->addRow(QStringLiteral("更新时间:"), m_realtimeTimestampLabel);
+    realtimeForm->addRow(QStringLiteral("当前状态:"), m_realtimeStatusLabel);
+    auto* realtimeButtons = new QHBoxLayout;
+    m_startMockSensorButton->setObjectName(QStringLiteral("startMockSensorButton"));
+    m_stopMockSensorButton->setObjectName(QStringLiteral("stopMockSensorButton"));
+    m_recordCurrentSensorSampleButton->setObjectName(
+        QStringLiteral("recordCurrentSensorSampleButton"));
+    realtimeButtons->addWidget(m_startMockSensorButton);
+    realtimeButtons->addWidget(m_stopMockSensorButton);
+    realtimeButtons->addWidget(m_recordCurrentSensorSampleButton);
+    realtimeButtons->addStretch();
+    realtimeForm->addRow(realtimeButtons);
+
     auto* layout = new QVBoxLayout(this);
     layout->addWidget(group);
     layout->addLayout(buttons);
     layout->addWidget(markerGroup);
+    layout->addWidget(gaugeGroup);
+    layout->addWidget(realtimeGroup);
     layout->addStretch();
 
     connect(m_startButton, &QPushButton::clicked, this, &ReconstructionPanel::startRequested);
@@ -139,6 +198,46 @@ ReconstructionPanel::ReconstructionPanel(QWidget* parent)
             &QPushButton::clicked,
             this,
             &ReconstructionPanel::deleteMarkerRequested);
+    connect(m_createGaugeButton,
+            &QPushButton::clicked,
+            this,
+            &ReconstructionPanel::createGaugeRequested);
+    connect(m_editGaugeButton,
+            &QPushButton::clicked,
+            this,
+            &ReconstructionPanel::editGaugeRequested);
+    connect(m_updateGaugeReadingButton,
+            &QPushButton::clicked,
+            this,
+            &ReconstructionPanel::updateGaugeReadingRequested);
+    connect(m_visualGaugeReadingButton,
+            &QPushButton::clicked,
+            this,
+            &ReconstructionPanel::visualGaugeReadingRequested);
+    connect(m_viewGaugeHistoryButton,
+            &QPushButton::clicked,
+            this,
+            &ReconstructionPanel::viewGaugeHistoryRequested);
+    connect(m_configureGaugeStatusRuleButton,
+            &QPushButton::clicked,
+            this,
+            &ReconstructionPanel::configureGaugeStatusRuleRequested);
+    connect(m_deleteGaugeButton,
+            &QPushButton::clicked,
+            this,
+            &ReconstructionPanel::deleteGaugeRequested);
+    connect(m_startMockSensorButton,
+            &QPushButton::clicked,
+            this,
+            &ReconstructionPanel::startMockSensorRequested);
+    connect(m_stopMockSensorButton,
+            &QPushButton::clicked,
+            this,
+            &ReconstructionPanel::stopMockSensorRequested);
+    connect(m_recordCurrentSensorSampleButton,
+            &QPushButton::clicked,
+            this,
+            &ReconstructionPanel::recordCurrentSensorSampleRequested);
     updateControls();
 }
 
@@ -153,6 +252,47 @@ QPushButton* ReconstructionPanel::resetViewButton() const { return m_resetViewBu
 QPushButton* ReconstructionPanel::addMarkerButton() const { return m_addMarkerButton; }
 
 QPushButton* ReconstructionPanel::deleteMarkerButton() const { return m_deleteMarkerButton; }
+
+QPushButton* ReconstructionPanel::createGaugeButton() const { return m_createGaugeButton; }
+
+QPushButton* ReconstructionPanel::editGaugeButton() const { return m_editGaugeButton; }
+
+QPushButton* ReconstructionPanel::updateGaugeReadingButton() const
+{
+    return m_updateGaugeReadingButton;
+}
+
+QPushButton* ReconstructionPanel::visualGaugeReadingButton() const
+{
+    return m_visualGaugeReadingButton;
+}
+
+QPushButton* ReconstructionPanel::viewGaugeHistoryButton() const
+{
+    return m_viewGaugeHistoryButton;
+}
+
+QPushButton* ReconstructionPanel::configureGaugeStatusRuleButton() const
+{
+    return m_configureGaugeStatusRuleButton;
+}
+
+QPushButton* ReconstructionPanel::deleteGaugeButton() const { return m_deleteGaugeButton; }
+
+QPushButton* ReconstructionPanel::startMockSensorButton() const
+{
+    return m_startMockSensorButton;
+}
+
+QPushButton* ReconstructionPanel::stopMockSensorButton() const
+{
+    return m_stopMockSensorButton;
+}
+
+QPushButton* ReconstructionPanel::recordCurrentSensorSampleButton() const
+{
+    return m_recordCurrentSensorSampleButton;
+}
 
 void ReconstructionPanel::setProjectContext(bool hasProject, int imageCount)
 {
@@ -240,7 +380,109 @@ void ReconstructionPanel::setSelectedMarkerDetails(const QString& id,
 void ReconstructionPanel::clearSelectedMarkerDetails()
 {
     m_markerLabel->setText(QStringLiteral("暂无选中设备标记"));
+    m_gaugeHistoryCount = 0;
     m_canDeleteMarker = false;
+    setSelectedGaugeDetails(std::nullopt, GaugeStatus::Unknown);
+    setGaugeActionEnabled(false, false, false, false);
+    setVisualGaugeReadingEnabled(false);
+    setGaugeStatusRuleEnabled(false);
+    setRealtimeMonitoringState(false,
+                               realtime::GaugeDataSourceState::Stopped,
+                               std::nullopt,
+                               GaugeStatus::Unknown,
+                               QString());
+    updateControls();
+}
+
+void ReconstructionPanel::setSelectedGaugeDetails(const std::optional<GaugeAsset>& asset,
+                                                  GaugeStatus status)
+{
+    if (!asset.has_value()) {
+        m_gaugeLabel->setText(QStringLiteral("未绑定仪表"));
+        return;
+    }
+
+    const QString latestValue = asset->latestValue.has_value()
+        ? QStringLiteral("%1 %2")
+              .arg(QString::number(*asset->latestValue, 'g', 15), asset->unit)
+        : QStringLiteral("暂无");
+    const QString latestTimestamp = asset->latestTimestamp.has_value()
+        ? asset->latestTimestamp->toLocalTime().toString(Qt::ISODateWithMs)
+        : QStringLiteral("暂无");
+    const QString statusRule = asset->statusRule.has_value() && asset->statusRule->isConfigured()
+        ? QStringLiteral("已配置")
+        : QStringLiteral("未配置");
+    m_gaugeLabel->setText(
+        QStringLiteral("ID: %1\n设备: %2\n量程: %3 ~ %4 %5\n视觉 Profile: %6\n最新读数: %7\n数据来源: %8\n更新时间: %9\n历史记录: %10\n当前状态: %11\n状态规则: %12")
+            .arg(asset->id)
+            .arg(asset->name)
+            .arg(QString::number(asset->rangeMin, 'g', 15))
+            .arg(QString::number(asset->rangeMax, 'g', 15))
+            .arg(asset->unit)
+            .arg(asset->gaugeProfileId.isEmpty() ? QStringLiteral("未绑定")
+                                                  : asset->gaugeProfileId)
+            .arg(latestValue)
+            .arg(gaugeDataSourceDisplayName(asset->dataSource))
+            .arg(latestTimestamp)
+            .arg(QString::number(static_cast<long long>(m_gaugeHistoryCount)))
+            .arg(gaugeStatusDisplayName(status))
+            .arg(statusRule));
+}
+
+void ReconstructionPanel::setSelectedGaugeHistoryCount(qsizetype count)
+{
+    m_gaugeHistoryCount = count < 0 ? 0 : count;
+}
+
+void ReconstructionPanel::setGaugeActionEnabled(bool canCreate,
+                                                 bool canEdit,
+                                                 bool canUpdateReading,
+                                                 bool canDelete)
+{
+    m_canCreateGauge = canCreate;
+    m_canEditGauge = canEdit;
+    m_canUpdateGaugeReading = canUpdateReading;
+    m_canDeleteGauge = canDelete;
+    updateControls();
+}
+
+void ReconstructionPanel::setVisualGaugeReadingEnabled(bool enabled)
+{
+    m_canVisualGaugeReading = enabled;
+    m_canViewGaugeHistory = enabled;
+    updateControls();
+}
+
+void ReconstructionPanel::setGaugeStatusRuleEnabled(bool enabled)
+{
+    m_canConfigureGaugeStatusRule = enabled;
+    updateControls();
+}
+
+void ReconstructionPanel::setRealtimeMonitoringState(
+    bool hasGauge,
+    realtime::GaugeDataSourceState state,
+    const std::optional<realtime::GaugeLiveState>& liveState,
+    GaugeStatus status,
+    const QString& unit)
+{
+    m_realtimeHasGauge = hasGauge;
+    m_realtimeState = state;
+    m_realtimeLiveState = liveState;
+    m_realtimeStateLabel->setText(realtime::gaugeDataSourceStateDisplayName(state));
+    if (liveState.has_value() && liveState->isValid()) {
+        m_realtimeValueLabel->setText(
+            QStringLiteral("%1 %2")
+                .arg(QString::number(liveState->value, 'g', 15), unit));
+        m_realtimeTimestampLabel->setText(
+            liveState->timestamp.toLocalTime().toString(Qt::ISODateWithMs));
+        m_realtimeSourceLabel->setText(gaugeDataSourceDisplayName(liveState->source));
+    } else {
+        m_realtimeValueLabel->setText(QStringLiteral("暂无"));
+        m_realtimeTimestampLabel->setText(QStringLiteral("暂无"));
+        m_realtimeSourceLabel->setText(QStringLiteral("-"));
+    }
+    m_realtimeStatusLabel->setText(gaugeStatusDisplayName(status));
     updateControls();
 }
 
@@ -253,6 +495,26 @@ void ReconstructionPanel::updateControls()
     m_resetViewButton->setEnabled(!m_running && m_viewerLoaded);
     m_addMarkerButton->setEnabled(!m_running && m_viewerLoaded && m_canAddMarker);
     m_deleteMarkerButton->setEnabled(!m_running && m_viewerLoaded && m_canDeleteMarker);
+    m_createGaugeButton->setEnabled(!m_running && m_viewerLoaded && m_canCreateGauge);
+    m_editGaugeButton->setEnabled(!m_running && m_viewerLoaded && m_canEditGauge);
+    m_updateGaugeReadingButton->setEnabled(
+        !m_running && m_viewerLoaded && m_canUpdateGaugeReading);
+    m_visualGaugeReadingButton->setEnabled(
+        !m_running && m_viewerLoaded && m_canVisualGaugeReading);
+    m_viewGaugeHistoryButton->setEnabled(
+        !m_running && m_viewerLoaded && m_canViewGaugeHistory);
+    m_configureGaugeStatusRuleButton->setEnabled(
+        !m_running && m_viewerLoaded && m_canConfigureGaugeStatusRule);
+    m_deleteGaugeButton->setEnabled(!m_running && m_viewerLoaded && m_canDeleteGauge);
+    m_startMockSensorButton->setEnabled(
+        !m_running && m_viewerLoaded && m_realtimeHasGauge
+        && m_realtimeState != realtime::GaugeDataSourceState::Running);
+    m_stopMockSensorButton->setEnabled(
+        !m_running && m_viewerLoaded && m_realtimeHasGauge
+        && m_realtimeState == realtime::GaugeDataSourceState::Running);
+    m_recordCurrentSensorSampleButton->setEnabled(
+        !m_running && m_viewerLoaded && m_realtimeHasGauge
+        && m_realtimeLiveState.has_value() && m_realtimeLiveState->isValid());
 }
 
 } // namespace vision3d

@@ -1,10 +1,13 @@
 #pragma once
 
 #include "core/device/DeviceMarker.h"
+#include "core/device/GaugeAsset.h"
+#include "core/inspection/InspectionRecord.h"
 #include "core/project/ProjectManifest.h"
 #include "core/reconstruction/ReconstructionTask.h"
 
 #include <QList>
+#include <QDateTime>
 #include <QObject>
 #include <QStringList>
 #include <QVector3D>
@@ -85,6 +88,48 @@ public:
                          QString* error = nullptr);
     bool removeDeviceMarker(const QString& id, QString* error = nullptr);
 
+    const GaugeAssetModel& gaugeAssetModel() const;
+    QList<GaugeAsset> gaugeAssets() const;
+    std::optional<GaugeAsset> gaugeAssetById(const QString& id) const;
+    std::optional<GaugeAsset> gaugeAssetForMarker(const QString& deviceMarkerId) const;
+    std::optional<GaugeAsset> gaugeAssetByMarkerId(const QString& deviceMarkerId) const;
+    bool addGaugeAsset(const GaugeAsset& asset, QString* error = nullptr);
+    bool addGaugeAsset(const QString& deviceMarkerId,
+                       const QString& name,
+                       double rangeMin,
+                       double rangeMax,
+                       const QString& unit,
+                       GaugeAsset* createdAsset = nullptr,
+                       QString* error = nullptr);
+    bool addGaugeAsset(const QString& deviceMarkerId,
+                       const QString& name,
+                       double rangeMin,
+                       double rangeMax,
+                       const QString& unit,
+                       QString* error);
+    bool updateGaugeAsset(const GaugeAsset& asset, QString* error = nullptr);
+    bool removeGaugeAsset(const QString& id, QString* error = nullptr);
+    const InspectionRecordModel& inspectionRecordModel() const;
+    QList<InspectionRecord> inspectionRecords() const;
+    QList<InspectionRecord> inspectionRecordsForGauge(const QString& gaugeAssetId) const;
+    std::optional<InspectionRecord> inspectionRecordById(const QString& id) const;
+    bool recordGaugeReading(const QString& assetId,
+                            double value,
+                            const QDateTime& timestamp,
+                            GaugeDataSource source,
+                            QString* error = nullptr);
+    bool recordGaugeReading(const QString& assetId,
+                            double value,
+                            const QDateTime& timestamp,
+                            GaugeDataSource source,
+                            const QString& imageAssetId,
+                            QString* error = nullptr);
+    bool updateGaugeReading(const QString& assetId,
+                            double value,
+                            const QDateTime& timestamp,
+                            GaugeDataSource source,
+                            QString* error = nullptr);
+
     bool hasProject() const;
     const QString& projectDirectory() const;
     const std::optional<ProjectManifest>& currentManifest() const;
@@ -96,11 +141,28 @@ private:
     AssetImportResult importSingleImage(const QString& sourcePath);
     bool persistManifest(ProjectManifest manifest, QString* error = nullptr);
     bool persistMarkerModel(const DeviceMarkerModel& model, QString* error = nullptr);
+    bool persistModels(const DeviceMarkerModel& markerModel,
+                       const GaugeAssetModel& gaugeModel,
+                       QString* error = nullptr);
+    bool persistModels(const DeviceMarkerModel& markerModel,
+                       const GaugeAssetModel& gaugeModel,
+                       const InspectionRecordModel& recordModel,
+                       QString* error = nullptr);
+    bool validateGaugeBindings(const DeviceMarkerModel& markerModel,
+                               const GaugeAssetModel& gaugeModel,
+                               QString* error = nullptr) const;
+    bool validateInspectionBindings(const DeviceMarkerModel& markerModel,
+                                    const GaugeAssetModel& gaugeModel,
+                                    const InspectionRecordModel& recordModel,
+                                    const QList<AssetRecord>& imageAssets,
+                                    QString* error = nullptr) const;
     bool markInterruptedTask(ProjectManifest* manifest, QString* error = nullptr) const;
 
     std::optional<ProjectManifest> m_manifest;
     QString m_projectDirectory;
     DeviceMarkerModel m_deviceMarkerModel;
+    GaugeAssetModel m_gaugeAssetModel;
+    InspectionRecordModel m_inspectionRecordModel;
 };
 
 } // namespace vision3d

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(Vision3DInspector
-    VERSION 0.1.0
+    VERSION 0.3.0
     LANGUAGES CXX
 )
 
@@ -11,7 +11,8 @@ set(CMAKE_AUTORCC ON)
 
 option(VISION3DINSPECTOR_BUILD_TESTS "Build Qt Test targets" ON)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Widgets OpenGL OpenGLWidgets)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Widgets OpenGL OpenGLWidgets Network SerialBus)
+find_package(OpenCV 4.14.0 REQUIRED COMPONENTS core imgproc imgcodecs)
 
 set(VISION3DINSPECTOR_SOURCES
     src/main.cpp
@@ -29,6 +30,22 @@ set(VISION3DINSPECTOR_SOURCES
     src/core/process/ProcessRunner.h
     src/core/device/DeviceMarker.cpp
     src/core/device/DeviceMarker.h
+    src/core/device/GaugeAsset.cpp
+    src/core/device/GaugeAsset.h
+    src/core/device/GaugeStatus.h
+    src/core/device/ModbusTcpBinding.h
+    src/core/realtime/GaugeDataSource.cpp
+    src/core/realtime/GaugeDataSource.h
+    src/core/realtime/ModbusTcpGaugeDataSource.cpp
+    src/core/realtime/ModbusTcpGaugeDataSource.h
+    src/core/realtime/GaugeLiveState.cpp
+    src/core/realtime/GaugeLiveState.h
+    src/core/realtime/RealtimeMonitoringController.cpp
+    src/core/realtime/RealtimeMonitoringController.h
+    src/core/device/GaugeProfile.cpp
+    src/core/device/GaugeProfile.h
+    src/core/inspection/InspectionRecord.cpp
+    src/core/inspection/InspectionRecord.h
     src/core/geometry/BoundingBox.cpp
     src/core/geometry/BoundingBox.h
     src/core/geometry/MarkerHitTesting.cpp
@@ -62,6 +79,10 @@ set(VISION3DINSPECTOR_SOURCES
     src/widgets/BackendPanel.h
     src/widgets/DeveloperSettingsDialog.cpp
     src/widgets/DeveloperSettingsDialog.h
+    src/widgets/GaugeAssetDialog.cpp
+    src/widgets/GaugeAssetDialog.h
+    src/widgets/GaugeStatusRuleDialog.cpp
+    src/widgets/GaugeStatusRuleDialog.h
     src/widgets/ImageAssetModel.cpp
     src/widgets/ImageAssetModel.h
     src/widgets/ImageBrowserPanel.cpp
@@ -74,6 +95,10 @@ set(VISION3DINSPECTOR_SOURCES
     src/widgets/ProjectPanel.h
     src/widgets/ReconstructionPanel.cpp
     src/widgets/ReconstructionPanel.h
+    src/widgets/VisualGaugeReadingDialog.cpp
+    src/widgets/VisualGaugeReadingDialog.h
+    src/core/vision/VisualGaugeReader.cpp
+    src/core/vision/VisualGaugeReader.h
     src/render/MeshRenderer.cpp
     src/render/MeshRenderer.h
     src/render/MarkerRenderer.cpp
@@ -90,13 +115,19 @@ list(REMOVE_ITEM VISION3DINSPECTOR_COMMON_SOURCES
 add_executable(Vision3DInspector WIN32 ${VISION3DINSPECTOR_SOURCES})
 
 target_compile_features(Vision3DInspector PRIVATE cxx_std_17)
-target_include_directories(Vision3DInspector PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_include_directories(Vision3DInspector PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    ${OpenCV_INCLUDE_DIRS}
+)
 target_link_libraries(Vision3DInspector PRIVATE
     Qt6::Core
     Qt6::Gui
     Qt6::Widgets
     Qt6::OpenGL
     Qt6::OpenGLWidgets
+    Qt6::Network
+    Qt6::SerialBus
+    ${OpenCV_LIBS}
 )
 
 if(MSVC)
@@ -119,13 +150,19 @@ add_executable(Vision3DMainWindowSmoke
 )
 
 target_compile_features(Vision3DMainWindowSmoke PRIVATE cxx_std_17)
-target_include_directories(Vision3DMainWindowSmoke PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_include_directories(Vision3DMainWindowSmoke PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    ${OpenCV_INCLUDE_DIRS}
+)
 target_link_libraries(Vision3DMainWindowSmoke PRIVATE
     Qt6::Core
     Qt6::Gui
     Qt6::Widgets
     Qt6::OpenGL
     Qt6::OpenGLWidgets
+    Qt6::Network
+    Qt6::SerialBus
+    ${OpenCV_LIBS}
 )
 
 if(MSVC)
@@ -133,3 +170,27 @@ if(MSVC)
 endif()
 
 qt_finalize_executable(Vision3DMainWindowSmoke)
+
+function(copy_opencv_runtime target_name)
+    if(TARGET opencv_world)
+        get_target_property(_opencv_release_dll opencv_world IMPORTED_LOCATION_RELEASE)
+        get_target_property(_opencv_debug_dll opencv_world IMPORTED_LOCATION_DEBUG)
+    elseif(TARGET opencv_core)
+        get_target_property(_opencv_release_dll opencv_core IMPORTED_LOCATION_RELEASE)
+        get_target_property(_opencv_debug_dll opencv_core IMPORTED_LOCATION_DEBUG)
+    endif()
+    if(_opencv_release_dll AND NOT _opencv_release_dll MATCHES "-NOTFOUND$")
+        add_custom_command(TARGET ${target_name} POST_BUILD
+            COMMAND ${CMAKE_COMMAND}
+                "-DOPENCV_RELEASE_DLL=${_opencv_release_dll}"
+                "-DOPENCV_DEBUG_DLL=${_opencv_debug_dll}"
+                "-DTARGET_FILE_DIR=$<TARGET_FILE_DIR:${target_name}>"
+                "-DCONFIG=$<CONFIG>"
+                -P "${CMAKE_CURRENT_LIST_DIR}/cmake/CopyOpenCVRuntime.cmake"
+            VERBATIM
+        )
+    endif()
+endfunction()
+
+copy_opencv_runtime(Vision3DInspector)
+copy_opencv_runtime(Vision3DMainWindowSmoke)

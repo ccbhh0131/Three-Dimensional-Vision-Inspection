@@ -1,35 +1,33 @@
 import QtQuick 2.15
+import QtQuick.Controls 2.15
 import ".."
 
-Rectangle {
+Button {
     id: root
-    property string text: "操作"
     property bool compact: false
     property Theme theme: Theme {}
-    signal clicked()
 
+    hoverEnabled: true
     implicitWidth: Math.max(92, label.implicitWidth + 30)
     implicitHeight: compact ? 32 : 36
-    radius: theme.radiusInput
-    color: mouse.containsMouse ? theme.primarySoft : theme.surface
-    border.color: mouse.containsMouse ? theme.primary : theme.border
-    opacity: enabled ? 1.0 : 0.55
 
-    Text {
+    contentItem: Text {
         id: label
-        anchors.centerIn: parent
         text: root.text
         color: theme.primary
         font.family: theme.cjkFontFamily
         font.pixelSize: root.compact ? 12 : 13
         font.weight: Font.DemiBold
+        horizontalAlignment: Text.AlignHCenter
+        verticalAlignment: Text.AlignVCenter
+        elide: Text.ElideRight
     }
-    MouseArea {
-        id: mouse
-        anchors.fill: parent
-        hoverEnabled: true
-        enabled: root.enabled
-        onClicked: root.clicked()
+    background: Rectangle {
+        radius: theme.radiusInput
+        color: !root.enabled ? theme.surfaceMuted : (root.pressed ? theme.primarySoft : (root.hovered ? theme.primarySoft : theme.surface))
+        border.color: root.activeFocus ? theme.primaryHover : (root.hovered || root.pressed ? theme.primary : theme.border)
+        border.width: root.activeFocus ? 2 : 1
+        opacity: root.enabled ? 1.0 : 0.55
+        Behavior on color { ColorAnimation { duration: 140 } }
     }
-    Behavior on color { ColorAnimation { duration: 140 } }
 }

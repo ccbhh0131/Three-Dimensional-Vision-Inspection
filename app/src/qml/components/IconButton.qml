@@ -1,33 +1,33 @@
 import QtQuick 2.15
+import QtQuick.Controls 2.15
 import ".."
 
-Rectangle {
+ToolButton {
     id: root
     property string iconSource: ""
     property string tooltip: ""
     property int iconSize: 18
     property Theme theme: Theme {}
-    signal clicked()
 
     width: 34
     height: 34
-    radius: theme.radiusInput
-    color: mouse.containsMouse ? theme.surfaceMuted : "transparent"
-    border.color: "transparent"
+    hoverEnabled: true
+    display: AbstractButton.IconOnly
 
-    Image {
-        anchors.centerIn: parent
+    contentItem: Image {
         width: root.iconSize
         height: root.iconSize
         source: root.iconSource
         fillMode: Image.PreserveAspectFit
         opacity: root.enabled ? 1.0 : 0.45
     }
-    MouseArea {
-        id: mouse
-        anchors.fill: parent
-        hoverEnabled: true
-        enabled: root.enabled
-        onClicked: root.clicked()
+    background: Rectangle {
+        radius: theme.radiusInput
+        color: root.pressed ? theme.border : (root.hovered ? theme.surfaceMuted : "transparent")
+        border.color: root.activeFocus ? theme.border : "transparent"
+        border.width: root.activeFocus ? 1 : 0
     }
+    ToolTip.visible: root.hovered && root.tooltip.length > 0
+    ToolTip.text: root.tooltip
+    ToolTip.delay: 500
 }

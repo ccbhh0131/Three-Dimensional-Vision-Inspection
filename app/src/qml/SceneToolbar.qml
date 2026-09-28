@@ -1,4 +1,5 @@
 import QtQuick 2.15
+import QtQuick.Controls 2.15
 import "components"
 
 Item {
@@ -40,25 +41,51 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             color: "#58645D"
         }
-        Rectangle {
+        ToolButton {
+            id: fitButton
             width: 90
             height: 30
-            radius: 7
             anchors.verticalCenter: parent.verticalCenter
-            color: toolMouse.containsMouse ? "#45534B" : "transparent"
-            border.color: "#647269"
-            Text { anchors.centerIn: parent; text: "适配视图"; color: "#F1F4F1"; font.family: theme.cjkFontFamily; font.pixelSize: 12 }
-            MouseArea { id: toolMouse; anchors.fill: parent; hoverEnabled: true; onClicked: viewModel.requestOpenViewer() }
+            hoverEnabled: true
+            text: "适配视图"
+            onClicked: viewModel.requestOpenViewer()
+            contentItem: Text {
+                text: fitButton.text
+                color: "#F1F4F1"
+                font.family: theme.cjkFontFamily
+                font.pixelSize: 12
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+            background: Rectangle {
+                radius: 7
+                color: fitButton.pressed ? "#3F4B44" : (fitButton.hovered ? "#45534B" : "transparent")
+                border.color: fitButton.activeFocus ? "#A7B5AC" : "#647269"
+                border.width: fitButton.activeFocus ? 2 : 1
+            }
         }
-        Rectangle {
+        ToolButton {
+            id: resetButton
             width: 90
             height: 30
-            radius: 7
             anchors.verticalCenter: parent.verticalCenter
-            color: resetMouse.containsMouse ? "#45534B" : "transparent"
-            border.color: "#647269"
-            Text { anchors.centerIn: parent; text: "重置视图"; color: "#F1F4F1"; font.family: theme.cjkFontFamily; font.pixelSize: 12 }
-            MouseArea { id: resetMouse; anchors.fill: parent; hoverEnabled: true; onClicked: viewModel.requestResetViewer() }
+            hoverEnabled: true
+            text: "重置视图"
+            onClicked: viewModel.requestResetViewer()
+            contentItem: Text {
+                text: resetButton.text
+                color: "#F1F4F1"
+                font.family: theme.cjkFontFamily
+                font.pixelSize: 12
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+            background: Rectangle {
+                radius: 7
+                color: resetButton.pressed ? "#3F4B44" : (resetButton.hovered ? "#45534B" : "transparent")
+                border.color: resetButton.activeFocus ? "#A7B5AC" : "#647269"
+                border.width: resetButton.activeFocus ? 2 : 1
+            }
         }
         Text {
             anchors.verticalCenter: parent.verticalCenter

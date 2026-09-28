@@ -58,6 +58,7 @@ QtObject {
     function requestImportImages() {}
     function requestOpenViewer() {}
     function requestResetViewer() {}
+    function requestCameraView(view) {}
     function requestVisualReading() {}
     function requestManualReading() {}
     function requestShowHistory() {}

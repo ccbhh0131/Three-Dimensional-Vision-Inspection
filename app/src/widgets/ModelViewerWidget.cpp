@@ -130,6 +130,48 @@ void ModelViewerWidget::resetView()
     update();
 }
 
+void ModelViewerWidget::setFrontView()
+{
+    m_camera.setFrontView();
+    update();
+}
+
+void ModelViewerWidget::setBackView()
+{
+    m_camera.setBackView();
+    update();
+}
+
+void ModelViewerWidget::setLeftView()
+{
+    m_camera.setLeftView();
+    update();
+}
+
+void ModelViewerWidget::setRightView()
+{
+    m_camera.setRightView();
+    update();
+}
+
+void ModelViewerWidget::setTopView()
+{
+    m_camera.setTopView();
+    update();
+}
+
+void ModelViewerWidget::setBottomView()
+{
+    m_camera.setBottomView();
+    update();
+}
+
+void ModelViewerWidget::setIsometricView()
+{
+    m_camera.setIsometricView();
+    update();
+}
+
 const MeshData& ModelViewerWidget::meshData() const
 {
     return m_mesh;
@@ -396,10 +438,12 @@ void ModelViewerWidget::mousePressEvent(QMouseEvent* event)
 
     m_lastMousePosition = event->position();
     if (event->button() == Qt::LeftButton) {
-        m_orbiting = true;
-        m_panning = false;
-        m_leftPressActive = true;
+        const bool shiftPan = event->modifiers().testFlag(Qt::ShiftModifier);
+        m_orbiting = !shiftPan;
+        m_panning = shiftPan;
+        m_leftPressActive = !shiftPan;
         m_leftDragStarted = false;
+        m_orbitAxis = OrbitAxis::None;
         m_leftPressPosition = event->position();
         setFocus(Qt::MouseFocusReason);
         event->accept();
@@ -408,6 +452,7 @@ void ModelViewerWidget::mousePressEvent(QMouseEvent* event)
         m_orbiting = false;
         m_leftPressActive = false;
         m_leftDragStarted = false;
+        m_orbitAxis = OrbitAxis::None;
         setFocus(Qt::MouseFocusReason);
         event->accept();
     } else {
@@ -434,10 +479,15 @@ void ModelViewerWidget::mouseMoveEvent(QMouseEvent* event)
         }
         m_leftDragStarted = true;
         const QPointF dragDelta = currentPosition - m_leftPressPosition;
+        m_orbitAxis = std::abs(dragDelta.x()) >= std::abs(dragDelta.y())
+            ? OrbitAxis::Yaw
+            : OrbitAxis::Pitch;
         m_lastMousePosition = currentPosition;
-        m_camera.orbit(
-            static_cast<float>(dragDelta.x()),
-            static_cast<float>(dragDelta.y()));
+        if (m_orbitAxis == OrbitAxis::Yaw) {
+            m_camera.orbit(static_cast<float>(dragDelta.x()), 0.0f);
+        } else {
+            m_camera.orbit(0.0f, static_cast<float>(dragDelta.y()));
+        }
         update();
         event->accept();
         return;
@@ -446,7 +496,11 @@ void ModelViewerWidget::mouseMoveEvent(QMouseEvent* event)
     const QPointF delta = currentPosition - m_lastMousePosition;
     m_lastMousePosition = currentPosition;
     if (m_orbiting) {
-        m_camera.orbit(static_cast<float>(delta.x()), static_cast<float>(delta.y()));
+        if (m_orbitAxis == OrbitAxis::Yaw) {
+            m_camera.orbit(static_cast<float>(delta.x()), 0.0f);
+        } else if (m_orbitAxis == OrbitAxis::Pitch) {
+            m_camera.orbit(0.0f, static_cast<float>(delta.y()));
+        }
     } else if (m_panning) {
         m_camera.pan(static_cast<float>(delta.x()), static_cast<float>(delta.y()));
     }
@@ -459,8 +513,10 @@ void ModelViewerWidget::mouseReleaseEvent(QMouseEvent* event)
     if (event->button() == Qt::LeftButton) {
         const bool shouldPick = m_leftPressActive && !m_leftDragStarted;
         m_orbiting = false;
+        m_panning = false;
         m_leftPressActive = false;
         m_leftDragStarted = false;
+        m_orbitAxis = OrbitAxis::None;
         if (shouldPick) {
             const std::optional<QString> markerId = markerIdAt(event->position());
             if (markerId.has_value()) {
@@ -473,6 +529,7 @@ void ModelViewerWidget::mouseReleaseEvent(QMouseEvent* event)
         event->accept();
     } else if (event->button() == Qt::MiddleButton) {
         m_panning = false;
+        m_orbitAxis = OrbitAxis::None;
         event->accept();
     } else {
         QOpenGLWidget::mouseReleaseEvent(event);

@@ -117,6 +117,7 @@ public:
     Q_INVOKABLE void requestImportImages();
     Q_INVOKABLE void requestOpenViewer();
     Q_INVOKABLE void requestResetViewer();
+    Q_INVOKABLE void requestCameraView(const QString& view);
     Q_INVOKABLE void requestVisualReading();
     Q_INVOKABLE void requestManualReading();
     Q_INVOKABLE void requestShowHistory();
@@ -140,6 +141,7 @@ signals:
     void importImagesRequested();
     void openViewerRequested();
     void resetViewerRequested();
+    void cameraViewRequested(const QString& view);
     void visualReadingRequested();
     void manualReadingRequested();
     void showHistoryRequested();

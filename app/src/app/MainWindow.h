@@ -59,6 +59,7 @@ private slots:
     void onReconstructionFinished(bool success);
     void open3DModel();
     void resetViewer();
+    void setCameraView(const QString& view);
     void onSurfacePicked(const SurfaceHit& hit);
     void onSurfaceMissed();
     void onMarkerSelected(const QString& markerId);
@@ -93,6 +94,7 @@ private:
     void configureQmlWidget(QQuickWidget* widget, const QUrl& source);
     void syncModernPage();
     void ensureModernSelection(const QString& markerId);
+    void scheduleViewerFit();
 
     ProjectManager m_projectManager;
     ProcessRunner m_processRunner;

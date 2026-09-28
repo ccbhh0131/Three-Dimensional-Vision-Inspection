@@ -230,6 +230,10 @@ void AppShellViewModel::requestOpenViewer()
     emit openViewerRequested();
 }
 void AppShellViewModel::requestResetViewer() { emit resetViewerRequested(); }
+void AppShellViewModel::requestCameraView(const QString& view)
+{
+    emit cameraViewRequested(view);
+}
 void AppShellViewModel::requestVisualReading()
 {
     if (!m_selectedMarkerId.isEmpty()) {

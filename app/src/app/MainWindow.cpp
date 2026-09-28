@@ -21,6 +21,7 @@
 #include <QAbstractItemView>
 #include <QApplication>
 #include <QColor>
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDialog>
 #include <QDir>
@@ -38,6 +39,7 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QQuickWidget>
+#include <QSettings>
 #include <QSGRendererInterface>
 #include <QUrl>
 #include <QSplitter>
@@ -89,6 +91,39 @@ QString productLogText(const QString& text)
         visibleLines.append(productLine);
     }
     return visibleLines.join(QLatin1Char('\n'));
+}
+
+QString viewerSettingsFilePath()
+{
+    // Keep this small viewer preference outside the Windows registry and next
+    // to the D: drive runtime executable used by the project.
+    return QDir(QCoreApplication::applicationDirPath())
+        .filePath(QStringLiteral("Vision3DInspector.ini"));
+}
+
+QString rememberedProjectDirectory()
+{
+    QSettings settings(viewerSettingsFilePath(), QSettings::IniFormat);
+    const QString remembered = settings
+        .value(QStringLiteral("paths/lastProjectDirectory"))
+        .toString()
+        .trimmed();
+    if (!remembered.isEmpty() && QDir(remembered).exists()) {
+        return QDir(remembered).absolutePath();
+    }
+    return QDir::homePath();
+}
+
+void rememberProjectDirectory(const QString& directory)
+{
+    if (directory.trimmed().isEmpty() || !QDir(directory).exists()) {
+        return;
+    }
+    QSettings settings(viewerSettingsFilePath(), QSettings::IniFormat);
+    settings.setValue(
+        QStringLiteral("paths/lastProjectDirectory"),
+        QDir(directory).absolutePath());
+    settings.sync();
 }
 
 DeviceMarkerVisualState markerVisualStateForGaugeStatus(GaugeStatus status)
@@ -508,6 +543,10 @@ void MainWindow::createModernInterface()
             this,
             &MainWindow::resetViewer);
     connect(m_appShellViewModel,
+            &AppShellViewModel::cameraViewRequested,
+            this,
+            &MainWindow::setCameraView);
+    connect(m_appShellViewModel,
             &AppShellViewModel::visualReadingRequested,
             this,
             &MainWindow::visualGaugeReading);
@@ -593,7 +632,7 @@ void MainWindow::createProject()
     }
 
     const QString parentDirectory = QFileDialog::getExistingDirectory(
-        this, QStringLiteral("选择项目保存目录"), QDir::homePath());
+        this, QStringLiteral("选择项目保存目录"), rememberedProjectDirectory());
     if (parentDirectory.isEmpty()) {
         return;
     }
@@ -604,6 +643,7 @@ void MainWindow::createProject()
         return;
     }
 
+    rememberProjectDirectory(m_projectManager.projectDirectory());
     m_logPanel->appendInfo(QStringLiteral("新建项目成功: %1").arg(m_projectManager.projectDirectory()));
 }
 
@@ -612,7 +652,7 @@ void MainWindow::openProject()
     const QString manifestPath = QFileDialog::getOpenFileName(
         this,
         QStringLiteral("打开项目"),
-        QDir::homePath(),
+        rememberedProjectDirectory(),
         QStringLiteral("Project Manifest (project.json)"));
     if (manifestPath.isEmpty()) {
         return;
@@ -638,7 +678,11 @@ bool MainWindow::openProjectPath(const QString& fileOrDirectory, QString* error)
     if (m_realtimeMonitoringController != nullptr) {
         m_realtimeMonitoringController->stop();
     }
-    return m_projectManager.openProject(fileOrDirectory, error);
+    const bool opened = m_projectManager.openProject(fileOrDirectory, error);
+    if (opened) {
+        rememberProjectDirectory(m_projectManager.projectDirectory());
+    }
+    return opened;
 }
 
 void MainWindow::closeProject()
@@ -1093,6 +1137,7 @@ void MainWindow::open3DModel()
         m_previewStack->setCurrentWidget(m_modelViewerWidget);
         m_reconstructionPanel->setViewerLoaded(true);
         refreshMarkerPresentation();
+        scheduleViewerFit();
         m_logPanel->appendInfo(QStringLiteral("已切换到已加载的三维模型。"));
         return;
     }
@@ -1130,6 +1175,7 @@ void MainWindow::open3DModel()
     refreshMarkerPresentation();
     m_previewStack->setCurrentWidget(m_modelViewerWidget);
     m_reconstructionPanel->setViewerLoaded(true);
+    scheduleViewerFit();
     m_logPanel->appendInfo(QStringLiteral("已加载三维模型并完成 Fit To View。"));
     m_logPanel->appendProcess(QStringLiteral("mesh path=%1; cpu load=%2 ms; normal generation=%3 ms")
                                   .arg(artifact.path)
@@ -1146,6 +1192,53 @@ void MainWindow::resetViewer()
     m_modelViewerWidget->resetView();
     m_previewStack->setCurrentWidget(m_modelViewerWidget);
     m_logPanel->appendInfo(QStringLiteral("三维视图已重置。"));
+}
+
+void MainWindow::setCameraView(const QString& view)
+{
+    if (!m_viewerMeshLoaded || !m_modelViewerWidget->hasMesh()) {
+        m_logPanel->appendError(QStringLiteral("无法切换三维视图：当前没有已加载的模型。"));
+        return;
+    }
+
+    const QString normalized = view.trimmed().toLower();
+    if (normalized == QStringLiteral("front")) {
+        m_modelViewerWidget->setFrontView();
+    } else if (normalized == QStringLiteral("back")) {
+        m_modelViewerWidget->setBackView();
+    } else if (normalized == QStringLiteral("left")) {
+        m_modelViewerWidget->setLeftView();
+    } else if (normalized == QStringLiteral("right")) {
+        m_modelViewerWidget->setRightView();
+    } else if (normalized == QStringLiteral("top")) {
+        m_modelViewerWidget->setTopView();
+    } else if (normalized == QStringLiteral("bottom")) {
+        m_modelViewerWidget->setBottomView();
+    } else if (normalized == QStringLiteral("isometric")) {
+        m_modelViewerWidget->setIsometricView();
+    } else {
+        return;
+    }
+
+    m_previewStack->setCurrentWidget(m_modelViewerWidget);
+}
+
+void MainWindow::scheduleViewerFit()
+{
+    QTimer::singleShot(0, m_modelViewerWidget, [this]() {
+        // Let QStackedWidget/QOpenGLWidget finish the visibility and viewport
+        // update before recalculating the projection from the mesh bounds.
+        QTimer::singleShot(50, m_modelViewerWidget, [this]() {
+            if (m_modelViewerWidget != nullptr
+                && m_viewerMeshLoaded
+                && m_modelViewerWidget->hasMesh()
+                && m_modelViewerWidget->isVisible()
+                && m_modelViewerWidget->width() > 1
+                && m_modelViewerWidget->height() > 1) {
+                m_modelViewerWidget->fitToView();
+            }
+        });
+    });
 }
 
 void MainWindow::onSurfacePicked(const SurfaceHit& hit)

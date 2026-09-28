@@ -31,6 +31,13 @@ public:
     void clearMesh();
     bool fitToView();
     void resetView();
+    void setFrontView();
+    void setBackView();
+    void setLeftView();
+    void setRightView();
+    void setTopView();
+    void setBottomView();
+    void setIsometricView();
 
     const MeshData& meshData() const;
     SurfaceHit pickAt(const QPointF& logicalPosition);
@@ -65,6 +72,12 @@ protected:
     void wheelEvent(QWheelEvent* event) override;
 
 private:
+    enum class OrbitAxis {
+        None,
+        Yaw,
+        Pitch,
+    };
+
     void handleContextAboutToBeDestroyed();
     void uploadPendingMesh();
     std::optional<QString> markerIdAt(const QPointF& logicalPosition) const;
@@ -88,6 +101,7 @@ private:
     bool m_panning = false;
     bool m_leftPressActive = false;
     bool m_leftDragStarted = false;
+    OrbitAxis m_orbitAxis = OrbitAxis::None;
     QPointF m_leftPressPosition;
     QPointF m_lastMousePosition;
 

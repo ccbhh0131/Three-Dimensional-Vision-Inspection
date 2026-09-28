@@ -6,6 +6,8 @@ Item {
     id: root
     AppShellFallback { id: fallbackViewModel }
     property var viewModel: appShellViewModel ? appShellViewModel : fallbackViewModel
+    property var presetLabels: ["前", "后", "左", "右", "上", "下", "等轴"]
+    property var presetKeys: ["front", "back", "left", "right", "top", "bottom", "isometric"]
     Theme { id: theme }
 
     Rectangle {
@@ -43,7 +45,7 @@ Item {
         }
         ToolButton {
             id: fitButton
-            width: 90
+            width: 80
             height: 30
             anchors.verticalCenter: parent.verticalCenter
             hoverEnabled: true
@@ -66,7 +68,7 @@ Item {
         }
         ToolButton {
             id: resetButton
-            width: 90
+            width: 80
             height: 30
             anchors.verticalCenter: parent.verticalCenter
             hoverEnabled: true
@@ -87,12 +89,45 @@ Item {
                 border.width: resetButton.activeFocus ? 2 : 1
             }
         }
+        Row {
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 2
+            Repeater {
+                model: root.presetLabels.length
+                delegate: ToolButton {
+                    id: presetButton
+                    width: index === 6 ? 34 : 26
+                    height: 30
+                    hoverEnabled: true
+                    text: root.presetLabels[index]
+                    onClicked: root.viewModel.requestCameraView(root.presetKeys[index])
+                    contentItem: Text {
+                        text: presetButton.text
+                        color: "#F1F4F1"
+                        font.family: theme.cjkFontFamily
+                        font.pixelSize: 11
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    background: Rectangle {
+                        radius: 7
+                        color: presetButton.pressed
+                            ? "#3F4B44"
+                            : (presetButton.hovered ? "#45534B" : "transparent")
+                        border.color: presetButton.activeFocus ? "#A7B5AC" : "#647269"
+                        border.width: presetButton.activeFocus ? 2 : 1
+                    }
+                }
+            }
+        }
         Text {
             anchors.verticalCenter: parent.verticalCenter
             text: "拖拽旋转 · Shift 平移 · 滚轮缩放 · 点击表面拾取"
             color: "#AAB6AE"
             font.family: theme.cjkFontFamily
             font.pixelSize: 11
+            elide: Text.ElideRight
+            width: Math.max(0, root.width - x - 14)
         }
     }
 }

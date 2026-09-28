@@ -18,6 +18,15 @@ public:
 
     void setViewportSize(int width, int height);
 
+    // Presets are relative to the default orientation established by fitToBounds().
+    void setFrontView();
+    void setBackView();
+    void setLeftView();
+    void setRightView();
+    void setTopView();
+    void setBottomView();
+    void setIsometricView();
+
     // Mouse deltas are in Qt logical widget pixels. Positive wheelSteps zooms in.
     void orbit(float deltaX, float deltaY);
     void pan(float deltaX, float deltaY);
@@ -46,6 +55,7 @@ public:
     QMatrix4x4 projectionMatrix() const;
 
 private:
+    void setPresetView(float yawRadians, float pitchRadians);
     void updateClipPlanes();
     QVector3D cameraOffset() const;
     void cameraBasis(QVector3D& right, QVector3D& up, QVector3D& forward) const;

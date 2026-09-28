@@ -63,6 +63,7 @@ private:
     void beginProbe();
     void beginStage(int index);
     ProcessCommand commandForStage(ReconstructionStage stage) const;
+    ProcessCommand modelOptimizationCommand() const;
     void openLog(const QString& fileName, const ProcessCommand& command);
     void closeLog();
     void appendLog(const QString& text);
@@ -71,6 +72,7 @@ private:
     bool validateStageArtifact(ReconstructionStage stage, QString* error);
     bool selectPrimaryModel(QString* error);
     void failTask(const QString& message, int exitCode);
+    void completeWithRawMeshFallback(const QString& detail, int exitCode);
     void cancelTask();
     void completeTask();
     static QString stageName(ReconstructionStage stage);

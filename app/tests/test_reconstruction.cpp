@@ -322,6 +322,7 @@ void ReconstructionTest::stageEnumConversion()
         vision3d::ReconstructionStage::DenseStereo,
         vision3d::ReconstructionStage::StereoFusion,
         vision3d::ReconstructionStage::Meshing,
+        vision3d::ReconstructionStage::ModelOptimization,
         vision3d::ReconstructionStage::Completed,
     };
     for (const auto stage : stages) {
@@ -346,6 +347,7 @@ void ReconstructionTest::taskWorkspaceCreation()
     QVERIFY(QDir(paths.inputDirectory).exists());
     QVERIFY(QDir(paths.sparseDirectory).exists());
     QVERIFY(QDir(paths.denseDirectory).exists());
+    QVERIFY(QDir(paths.refinementDirectory).exists());
     QVERIFY(QDir(paths.logsDirectory).exists());
     QCOMPARE(paths.relativeRoot, QStringLiteral("reconstruction/jobs/task-1"));
     QVERIFY(!QFileInfo::exists(paths.root + QStringLiteral("/task-2")));
@@ -609,10 +611,13 @@ void ReconstructionTest::stageProgressMapping()
               1);
     QCOMPARE(vision3d::ReconstructionController::completedStageCount(
                   vision3d::ReconstructionStage::Meshing),
-              6);
+              7);
+    QCOMPARE(vision3d::ReconstructionController::completedStageCount(
+                  vision3d::ReconstructionStage::ModelOptimization),
+              7);
     QCOMPARE(vision3d::ReconstructionController::completedStageCount(
                   vision3d::ReconstructionStage::Completed),
-              7);
+              8);
 }
 
 void ReconstructionTest::fakeControllerCompletesPipeline()

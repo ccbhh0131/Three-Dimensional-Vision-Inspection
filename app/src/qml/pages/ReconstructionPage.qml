@@ -4,6 +4,7 @@ import "../components"
 
 Item {
     id: root
+    property var pipelineStages: ["图像资产", "特征与匹配", "稀疏重建", "稠密与融合", "网格产物", "模型优化"]
     AppShellFallback { id: fallbackViewModel }
     property var viewModel: appShellViewModel ? appShellViewModel : fallbackViewModel
     Theme { id: theme }
@@ -67,13 +68,13 @@ Item {
                     theme: theme
                     PanelTitle { title: "流水线"; detail: viewModel.reconstructionText; theme: theme }
                     Repeater {
-                        model: ["图像资产", "特征与匹配", "稀疏重建", "稠密与融合", "网格产物"]
+                        model: root.pipelineStages.length
                         delegate: Row {
                             width: parent.width
                             height: 30
                             spacing: 10
-                            Rectangle { width: 18; height: 18; radius: 9; anchors.verticalCenter: parent.verticalCenter; color: index < 4 && viewModel.reconstructionProgress >= (index + 1) * 20 ? theme.primary : theme.surfaceMuted; border.color: theme.border; Text { anchors.centerIn: parent; text: index < 4 && viewModel.reconstructionProgress >= (index + 1) * 20 ? "✓" : (index + 1); color: index < 4 && viewModel.reconstructionProgress >= (index + 1) * 20 ? theme.surface : theme.textMuted; font.pixelSize: 10 } }
-                            Text { text: modelData; color: index === 4 && viewModel.reconstructionProgress === 100 ? theme.primary : theme.textSecondary; font.family: theme.cjkFontFamily; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
+                            Rectangle { width: 18; height: 18; radius: 9; anchors.verticalCenter: parent.verticalCenter; color: viewModel.reconstructionProgress >= (index + 1) * 100 / root.pipelineStages.length ? theme.primary : theme.surfaceMuted; border.color: theme.border; Text { anchors.centerIn: parent; text: viewModel.reconstructionProgress >= (index + 1) * 100 / root.pipelineStages.length ? "✓" : (index + 1); color: viewModel.reconstructionProgress >= (index + 1) * 100 / root.pipelineStages.length ? theme.surface : theme.textMuted; font.pixelSize: 10 } }
+                            Text { text: root.pipelineStages[index]; color: index === root.pipelineStages.length - 1 && viewModel.reconstructionProgress === 100 ? theme.primary : theme.textSecondary; font.family: theme.cjkFontFamily; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
                         }
                     }
                 }

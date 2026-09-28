@@ -91,6 +91,9 @@ QString stageDisplay(const QString& value)
     if (normalized == QStringLiteral("meshing")) {
         return QStringLiteral("网格生成");
     }
+    if (normalized == QStringLiteral("model_optimization")) {
+        return QStringLiteral("模型优化");
+    }
     if (normalized == QStringLiteral("completed")) {
         return QStringLiteral("已完成");
     }

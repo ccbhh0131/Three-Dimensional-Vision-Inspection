@@ -10,9 +10,31 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
 option(VISION3DINSPECTOR_BUILD_TESTS "Build Qt Test targets" ON)
+option(VISION3DINSPECTOR_BUILD_GEOMETRY_WORKER
+       "Build the Open3D and meshoptimizer geometry worker when local SDKs are available"
+       ON)
+
+set(VISION3D_OPEN3D_ROOT
+    "${CMAKE_CURRENT_LIST_DIR}/../third_party/open3d/0.20.0"
+    CACHE PATH "Open3D 0.20.0 C++ package root")
+set(VISION3D_MESHOPTIMIZER_ROOT
+    "${CMAKE_CURRENT_LIST_DIR}/../third_party/meshoptimizer/1.3"
+    CACHE PATH "meshoptimizer source root")
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Widgets OpenGL OpenGLWidgets Network SerialBus Qml Quick QuickWidgets QuickControls2)
 find_package(OpenCV 4.14.0 REQUIRED COMPONENTS core imgproc imgcodecs)
+
+set(VISION3D_OPEN3D_TARGET "")
+if(VISION3DINSPECTOR_BUILD_GEOMETRY_WORKER
+   AND EXISTS "${VISION3D_OPEN3D_ROOT}/CMake/Open3DConfig.cmake")
+    list(APPEND CMAKE_PREFIX_PATH "${VISION3D_OPEN3D_ROOT}/CMake")
+    find_package(Open3D CONFIG QUIET)
+    if(TARGET Open3D::Open3D)
+        set(VISION3D_OPEN3D_TARGET Open3D::Open3D)
+    elseif(TARGET Open3D)
+        set(VISION3D_OPEN3D_TARGET Open3D)
+    endif()
+endif()
 
 set(VISION3DINSPECTOR_SOURCES
     src/main.cpp
@@ -207,3 +229,43 @@ endfunction()
 
 copy_opencv_runtime(Vision3DInspector)
 copy_opencv_runtime(Vision3DMainWindowSmoke)
+
+if(VISION3DINSPECTOR_BUILD_GEOMETRY_WORKER
+   AND VISION3D_OPEN3D_TARGET
+   AND EXISTS "${VISION3D_MESHOPTIMIZER_ROOT}/CMakeLists.txt")
+    set(MESHOPT_BUILD_DEMO OFF CACHE BOOL "" FORCE)
+    set(MESHOPT_BUILD_GLTFPACK OFF CACHE BOOL "" FORCE)
+    set(MESHOPT_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    set(MESHOPT_INSTALL OFF CACHE BOOL "" FORCE)
+    add_subdirectory("${VISION3D_MESHOPTIMIZER_ROOT}"
+                     "${CMAKE_BINARY_DIR}/meshoptimizer-build"
+                     EXCLUDE_FROM_ALL)
+
+    if(TARGET meshoptimizer)
+        add_executable(Vision3DGeometryWorker
+            src/geometry_worker/main.cpp
+        )
+        target_compile_features(Vision3DGeometryWorker PRIVATE cxx_std_17)
+        target_link_libraries(Vision3DGeometryWorker PRIVATE
+            ${VISION3D_OPEN3D_TARGET}
+            meshoptimizer
+        )
+        if(MSVC)
+            target_compile_options(Vision3DGeometryWorker PRIVATE /W4 /permissive- /FS)
+        endif()
+
+        file(GLOB VISION3D_OPEN3D_RUNTIME_DLLS
+             CONFIGURE_DEPENDS "${VISION3D_OPEN3D_ROOT}/bin/*.dll")
+        foreach(VISION3D_OPEN3D_DLL IN LISTS VISION3D_OPEN3D_RUNTIME_DLLS)
+            add_custom_command(TARGET Vision3DGeometryWorker POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${VISION3D_OPEN3D_DLL}"
+                    "$<TARGET_FILE_DIR:Vision3DGeometryWorker>"
+                VERBATIM
+            )
+        endforeach()
+    endif()
+elseif(VISION3DINSPECTOR_BUILD_GEOMETRY_WORKER)
+    message(WARNING
+        "Geometry worker disabled because the local Open3D 0.20.0 package or meshoptimizer source was not found.")
+endif()

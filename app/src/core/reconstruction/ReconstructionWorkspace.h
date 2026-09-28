@@ -17,6 +17,7 @@ struct ReconstructionJobPaths
     QString databasePath;
     QString sparseDirectory;
     QString denseDirectory;
+    QString refinementDirectory;
     QString logsDirectory;
     QString taskJsonPath;
     QString inputManifestPath;

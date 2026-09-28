@@ -138,6 +138,8 @@ QString reconstructionStageToString(ReconstructionStage stage)
         return QStringLiteral("stereo_fusion");
     case ReconstructionStage::Meshing:
         return QStringLiteral("meshing");
+    case ReconstructionStage::ModelOptimization:
+        return QStringLiteral("model_optimization");
     case ReconstructionStage::Completed:
         return QStringLiteral("completed");
     }
@@ -157,6 +159,7 @@ std::optional<ReconstructionStage> reconstructionStageFromString(const QString& 
         {QStringLiteral("dense_stereo"), ReconstructionStage::DenseStereo},
         {QStringLiteral("stereo_fusion"), ReconstructionStage::StereoFusion},
         {QStringLiteral("meshing"), ReconstructionStage::Meshing},
+        {QStringLiteral("model_optimization"), ReconstructionStage::ModelOptimization},
         {QStringLiteral("completed"), ReconstructionStage::Completed},
     };
     for (const auto& pair : values) {

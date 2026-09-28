@@ -80,6 +80,7 @@ bool ReconstructionWorkspace::create(const QString& projectDirectory,
     result.databasePath = QDir(result.root).filePath(QStringLiteral("database.db"));
     result.sparseDirectory = QDir(result.root).filePath(QStringLiteral("sparse"));
     result.denseDirectory = QDir(result.root).filePath(QStringLiteral("dense"));
+    result.refinementDirectory = QDir(result.denseDirectory).filePath(QStringLiteral("refinement"));
     result.logsDirectory = QDir(result.root).filePath(QStringLiteral("logs"));
     result.taskJsonPath = QDir(result.root).filePath(QStringLiteral("task.json"));
     result.inputManifestPath = QDir(result.root).filePath(QStringLiteral("input_manifest.json"));
@@ -96,6 +97,7 @@ bool ReconstructionWorkspace::create(const QString& projectDirectory,
         result.relativeRoot + QStringLiteral("/input"),
         result.relativeRoot + QStringLiteral("/sparse"),
         result.relativeRoot + QStringLiteral("/dense"),
+        result.relativeRoot + QStringLiteral("/dense/refinement"),
         result.relativeRoot + QStringLiteral("/logs"),
     };
     for (const QString& directory : directories) {

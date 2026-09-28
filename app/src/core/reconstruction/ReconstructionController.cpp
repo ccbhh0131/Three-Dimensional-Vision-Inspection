@@ -1,5 +1,6 @@
 #include "core/reconstruction/ReconstructionController.h"
 
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
@@ -20,6 +21,8 @@ const QList<ReconstructionController::StageDefinition>& stageDefinitions()
         {ReconstructionStage::DenseStereo, QStringLiteral("A5_patchmatch.log")},
         {ReconstructionStage::StereoFusion, QStringLiteral("A6_fusion.log")},
         {ReconstructionStage::Meshing, QStringLiteral("A7_meshing.log")},
+        {ReconstructionStage::ModelOptimization,
+         QStringLiteral("A8_model_optimization.log")},
     };
     return definitions;
 }
@@ -200,13 +203,25 @@ void ReconstructionController::beginStage(int index)
     appendLog(QStringLiteral("Stage started: %1\n").arg(stageName(definition.stage)));
     setTaskChanged();
 
+    if (definition.stage == ReconstructionStage::ModelOptimization
+        && !QFileInfo(command.program).isFile()) {
+        completeWithRawMeshFallback(
+            QStringLiteral("Vision3DGeometryWorker.exe 不存在: %1").arg(command.program),
+            -1);
+        return;
+    }
+
     QString error;
     if (!m_processRunner->start(command.program,
                                 command.arguments,
                                 command.workingDirectory,
                                 &error)) {
         m_processError = error;
-        failTask(QStringLiteral("%1 无法启动: %2").arg(stageName(definition.stage), error), -1);
+        if (definition.stage == ReconstructionStage::ModelOptimization) {
+            completeWithRawMeshFallback(error, -1);
+        } else {
+            failTask(QStringLiteral("%1 无法启动: %2").arg(stageName(definition.stage), error), -1);
+        }
     }
 }
 
@@ -229,9 +244,28 @@ ProcessCommand ReconstructionController::commandForStage(ReconstructionStage sta
         return m_backend->fusionCommand(m_backendRoot, m_jobPaths.root);
     case ReconstructionStage::Meshing:
         return m_backend->meshingCommand(m_backendRoot, m_jobPaths.root);
+    case ReconstructionStage::ModelOptimization:
+        return modelOptimizationCommand();
     default:
         return {};
     }
+}
+
+ProcessCommand ReconstructionController::modelOptimizationCommand() const
+{
+    QString program = QString::fromLocal8Bit(qgetenv("VISION3D_GEOMETRY_WORKER"));
+    if (program.trimmed().isEmpty()) {
+        program = QDir(QCoreApplication::applicationDirPath())
+                      .filePath(QStringLiteral("Vision3DGeometryWorker.exe"));
+    }
+    return {program,
+            {QStringLiteral("refine"),
+             QStringLiteral("--cloud"),
+             QDir(m_jobPaths.root).filePath(QStringLiteral("dense/fused.ply")),
+             QStringLiteral("--output"),
+             m_jobPaths.refinementDirectory},
+            m_jobPaths.root,
+            QStringLiteral("Open3D + meshoptimizer model refinement")};
 }
 
 void ReconstructionController::openLog(const QString& fileName, const ProcessCommand& command)
@@ -330,15 +364,24 @@ void ReconstructionController::onProcessFinished(int exitCode, QProcess::ExitSta
         const QString detail = !m_processError.isEmpty()
                                    ? m_processError
                                    : QStringLiteral("exit code=%1").arg(exitCode);
-        failTask(QStringLiteral("%1 失败：%2").arg(stageName(m_task.stage), detail), exitCode);
+        if (m_task.stage == ReconstructionStage::ModelOptimization) {
+            completeWithRawMeshFallback(detail, exitCode);
+        } else {
+            failTask(QStringLiteral("%1 失败：%2").arg(stageName(m_task.stage), detail), exitCode);
+        }
         return;
     }
 
     QString artifactError;
     if (!validateStageArtifact(m_task.stage, &artifactError)) {
-        failTask(QStringLiteral("%1 artifact 校验失败：%2")
-                     .arg(stageName(m_task.stage), artifactError),
-                 exitCode);
+        if (m_task.stage == ReconstructionStage::ModelOptimization) {
+            completeWithRawMeshFallback(
+                QStringLiteral("artifact 校验失败: %1").arg(artifactError), exitCode);
+        } else {
+            failTask(QStringLiteral("%1 artifact 校验失败：%2")
+                         .arg(stageName(m_task.stage), artifactError),
+                     exitCode);
+        }
         return;
     }
     const int nextIndex = m_stageIndex + 1;
@@ -367,6 +410,21 @@ bool ReconstructionController::validateStageArtifact(ReconstructionStage stage, 
         m_task.meshRelativePath = QStringLiteral("dense/meshed-poisson.ply");
         return ReconstructionArtifactValidator::validateNonEmptyFile(
             QDir(m_jobPaths.root).filePath(m_task.meshRelativePath), error);
+    case ReconstructionStage::ModelOptimization: {
+        const QString open3dMesh = QDir(m_jobPaths.refinementDirectory)
+                                       .filePath(QStringLiteral("open3d-mesh.ply"));
+        const QString finalMesh = QDir(m_jobPaths.refinementDirectory)
+                                      .filePath(QStringLiteral("final-mesh.ply"));
+        const QString metadata = QDir(m_jobPaths.refinementDirectory)
+                                     .filePath(QStringLiteral("refinement.json"));
+        if (!ReconstructionArtifactValidator::validateNonEmptyFile(open3dMesh, error)
+            || !ReconstructionArtifactValidator::validateNonEmptyFile(finalMesh, error)
+            || !ReconstructionArtifactValidator::validateNonEmptyFile(metadata, error)) {
+            return false;
+        }
+        m_task.meshRelativePath = QStringLiteral("dense/refinement/final-mesh.ply");
+        return true;
+    }
     default:
         return true;
     }
@@ -410,6 +468,41 @@ void ReconstructionController::failTask(const QString& message, int exitCode)
     emit finished(false);
 }
 
+void ReconstructionController::completeWithRawMeshFallback(const QString& detail, int exitCode)
+{
+    closeLog();
+    const QString rawMeshRelativePath = QStringLiteral("dense/meshed-poisson.ply");
+    QString rawMeshError;
+    if (!ReconstructionArtifactValidator::validateNonEmptyFile(
+            QDir(m_jobPaths.root).filePath(rawMeshRelativePath), &rawMeshError)) {
+        failTask(QStringLiteral("Model Optimization Failed，且 Raw Mesh fallback 不可用: %1 (%2)")
+                     .arg(detail, rawMeshError),
+                 exitCode);
+        return;
+    }
+
+    m_processPurpose = ProcessPurpose::None;
+    m_task.state = ReconstructionState::Completed;
+    m_task.stage = ReconstructionStage::Completed;
+    m_task.meshRelativePath = rawMeshRelativePath;
+    m_task.errorMessage = QStringLiteral("Model Optimization Failed / Using Raw Mesh: %1")
+                              .arg(detail);
+    m_task.failedStage = stageName(ReconstructionStage::ModelOptimization);
+    m_task.exitCode = exitCode;
+    m_task.finishedAt = QDateTime::currentDateTimeUtc();
+    m_task.totalElapsedMilliseconds = m_totalTimer.isValid() ? m_totalTimer.elapsed() : -1;
+    QString persistError;
+    if (!persistTask(&persistError) && !persistError.isEmpty()) {
+        emit logMessage(QStringLiteral("回退状态持久化失败: %1").arg(persistError), true);
+    }
+    emit logMessage(QStringLiteral("Model Optimization Failed / Using Raw Mesh"), false);
+    if (!detail.isEmpty()) {
+        emit logMessage(detail, true);
+    }
+    emit taskChanged();
+    emit finished(true);
+}
+
 void ReconstructionController::cancelTask()
 {
     closeLog();
@@ -433,7 +526,7 @@ void ReconstructionController::completeTask()
     m_task.finishedAt = QDateTime::currentDateTimeUtc();
     m_task.totalElapsedMilliseconds = m_totalTimer.isValid() ? m_totalTimer.elapsed() : -1;
     persistTask();
-    emit logMessage(QStringLiteral("A1-A7 Reconstruction Pipeline 已完成。"), false);
+    emit logMessage(QStringLiteral("A1-A8 Reconstruction Pipeline 已完成。"), false);
     emit taskChanged();
     emit finished(true);
 }
@@ -481,8 +574,10 @@ int ReconstructionController::completedStageCount(ReconstructionStage stage)
     case ReconstructionStage::StereoFusion:
         return 6;
     case ReconstructionStage::Meshing:
+    case ReconstructionStage::ModelOptimization:
+        return 7;
     case ReconstructionStage::Completed:
-        return stage == ReconstructionStage::Completed ? 7 : 6;
+        return 8;
     }
     return 0;
 }
@@ -534,6 +629,8 @@ QString ReconstructionController::stageName(ReconstructionStage stage)
         return QStringLiteral("A6 Stereo Fusion");
     case ReconstructionStage::Meshing:
         return QStringLiteral("A7 Poisson Meshing");
+    case ReconstructionStage::ModelOptimization:
+        return QStringLiteral("A8 Model Optimization");
     case ReconstructionStage::Completed:
         return QStringLiteral("Completed");
     }

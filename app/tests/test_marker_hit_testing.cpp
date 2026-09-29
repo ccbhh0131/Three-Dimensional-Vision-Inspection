@@ -27,6 +27,7 @@ private slots:
     void markerMissOutsideRadius();
     void closestMarkerSelection();
     void highDpiLogicalCoordinate();
+    void transformedMarkerPositionAndHitTest();
 };
 
 void MarkerHitTestingTest::worldToScreenCenter()
@@ -112,6 +113,49 @@ void MarkerHitTestingTest::highDpiLogicalCoordinate()
         camera, QVector3D(0.25f, 0.25f, 0.0f), QSize(800, 600), 2.0, twoX));
     QVERIFY(qAbs(oneX.x() - twoX.x()) <= 1.0e-4);
     QVERIFY(qAbs(oneX.y() - twoX.y()) <= 1.0e-4);
+}
+
+void MarkerHitTestingTest::transformedMarkerPositionAndHitTest()
+{
+    const vision3d::CameraController camera = makeCamera();
+    QMatrix4x4 model;
+    model.setToIdentity();
+    model.rotate(90.0f, 0.0f, 0.0f, 1.0f);
+
+    const QVector3D rawPosition(0.5f, 0.0f, 0.0f);
+    QPointF transformedPosition;
+    QVERIFY(vision3d::MarkerHitTesting::worldToLogicalPosition(
+        camera,
+        rawPosition,
+        model,
+        QSize(800, 600),
+        1.0,
+        transformedPosition));
+
+    QPointF expectedPosition;
+    QVERIFY(vision3d::MarkerHitTesting::worldToLogicalPosition(
+        camera,
+        QVector3D(0.0f, 0.5f, 0.0f),
+        QSize(800, 600),
+        1.0,
+        expectedPosition));
+    QVERIFY((transformedPosition - expectedPosition).manhattanLength() <= 1.0e-4);
+
+    const vision3d::DeviceMarkerView marker{
+        QStringLiteral("aligned-marker"),
+        QStringLiteral("P01"),
+        rawPosition,
+        false};
+    const std::optional<QString> selected = vision3d::MarkerHitTesting::hitTest(
+        {marker},
+        camera,
+        model,
+        transformedPosition,
+        QSize(800, 600),
+        1.0,
+        14.0);
+    QVERIFY(selected.has_value());
+    QCOMPARE(*selected, QStringLiteral("aligned-marker"));
 }
 
 } // namespace

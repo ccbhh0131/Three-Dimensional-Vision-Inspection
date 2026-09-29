@@ -8,6 +8,7 @@ class QString;
 namespace vision3d {
 
 class ProjectManager;
+class AppPreferences;
 namespace realtime {
 class RealtimeMonitoringController;
 }
@@ -34,6 +35,9 @@ class AppShellViewModel final : public QObject
     Q_PROPERTY(QString reconstructionArtifactText READ reconstructionArtifactText NOTIFY dataChanged)
     Q_PROPERTY(QString engineText READ engineText NOTIFY dataChanged)
     Q_PROPERTY(QString viewerText READ viewerText NOTIFY dataChanged)
+    Q_PROPERTY(bool alignmentEditing READ alignmentEditing NOTIFY dataChanged)
+    Q_PROPERTY(bool canAddMarker READ canAddMarker NOTIFY dataChanged)
+    Q_PROPERTY(bool canDeleteMarker READ canDeleteMarker NOTIFY dataChanged)
 
     Q_PROPERTY(QString deviceName READ deviceName NOTIFY dataChanged)
     Q_PROPERTY(QString gaugeName READ gaugeName NOTIFY dataChanged)
@@ -62,9 +66,23 @@ class AppShellViewModel final : public QObject
     Q_PROPERTY(QString visualImageSource READ visualImageSource NOTIFY dataChanged)
     Q_PROPERTY(QString statusBarText READ statusBarText NOTIFY dataChanged)
 
+    Q_PROPERTY(QString defaultProjectDirectory READ defaultProjectDirectory NOTIFY dataChanged)
+    Q_PROPERTY(QString lastProjectDirectory READ lastProjectDirectory NOTIFY dataChanged)
+    Q_PROPERTY(bool restoreLastProject READ restoreLastProject NOTIFY dataChanged)
+    Q_PROPERTY(bool rememberLastDirectory READ rememberLastDirectory NOTIFY dataChanged)
+    Q_PROPERTY(bool autoFit READ autoFit NOTIFY dataChanged)
+    Q_PROPERTY(double orbitSensitivity READ orbitSensitivity NOTIFY dataChanged)
+    Q_PROPERTY(bool showMarkers READ showMarkers NOTIFY dataChanged)
+    Q_PROPERTY(double markerSize READ markerSize NOTIFY dataChanged)
+    Q_PROPERTY(int realtimePollIntervalMs READ realtimePollIntervalMs NOTIFY dataChanged)
+    Q_PROPERTY(QString productVersion READ productVersion CONSTANT)
+    Q_PROPERTY(QString buildType READ buildType CONSTANT)
+    Q_PROPERTY(QString configDirectory READ configDirectory CONSTANT)
+
 public:
     explicit AppShellViewModel(ProjectManager* projectManager,
                                realtime::RealtimeMonitoringController* realtimeController,
+                               AppPreferences* preferences,
                                QObject* parent = nullptr);
 
     QString currentPage() const;
@@ -83,6 +101,9 @@ public:
     QString reconstructionArtifactText() const;
     QString engineText() const;
     QString viewerText() const;
+    bool alignmentEditing() const;
+    bool canAddMarker() const;
+    bool canDeleteMarker() const;
 
     QString deviceName() const;
     QString gaugeName() const;
@@ -111,6 +132,19 @@ public:
     QString visualImageSource() const;
     QString statusBarText() const;
 
+    QString defaultProjectDirectory() const;
+    QString lastProjectDirectory() const;
+    bool restoreLastProject() const;
+    bool rememberLastDirectory() const;
+    bool autoFit() const;
+    double orbitSensitivity() const;
+    bool showMarkers() const;
+    double markerSize() const;
+    int realtimePollIntervalMs() const;
+    QString productVersion() const;
+    QString buildType() const;
+    QString configDirectory() const;
+
     Q_INVOKABLE void selectPage(const QString& page);
     Q_INVOKABLE void requestCreateProject();
     Q_INVOKABLE void requestOpenProject();
@@ -118,6 +152,13 @@ public:
     Q_INVOKABLE void requestOpenViewer();
     Q_INVOKABLE void requestResetViewer();
     Q_INVOKABLE void requestCameraView(const QString& view);
+    Q_INVOKABLE void requestBeginSceneAlignment();
+    Q_INVOKABLE void requestSceneAlignmentRotation(const QString& axis, double degrees);
+    Q_INVOKABLE void requestResetSceneAlignment();
+    Q_INVOKABLE void requestCancelSceneAlignment();
+    Q_INVOKABLE void requestSaveSceneAlignment();
+    Q_INVOKABLE void requestAddMarker();
+    Q_INVOKABLE void requestDeleteMarker();
     Q_INVOKABLE void requestVisualReading();
     Q_INVOKABLE void requestManualReading();
     Q_INVOKABLE void requestShowHistory();
@@ -128,9 +169,24 @@ public:
     Q_INVOKABLE void requestStopRealtime();
     Q_INVOKABLE void requestRecordRealtime();
     Q_INVOKABLE void requestSettings();
+    Q_INVOKABLE void requestSelectDefaultProjectDirectory();
+    Q_INVOKABLE void requestOpenThirdPartyLicenses();
+    Q_INVOKABLE void requestResetPreferences();
+    Q_INVOKABLE void setRestoreLastProject(bool enabled);
+    Q_INVOKABLE void setRememberLastDirectory(bool enabled);
+    Q_INVOKABLE void setAutoFit(bool enabled);
+    Q_INVOKABLE void setOrbitSensitivity(double sensitivity);
+    Q_INVOKABLE void setShowMarkers(bool enabled);
+    Q_INVOKABLE void setMarkerSize(double scale);
+    Q_INVOKABLE void setRealtimePollIntervalMs(int intervalMs);
+    Q_INVOKABLE void setDefaultProjectDirectory(const QString& directory);
+    Q_INVOKABLE void requestFitViewer();
     Q_INVOKABLE void refresh();
 
     void setSelectedMarkerId(const QString& markerId);
+    void setAlignmentEditing(bool editing);
+    void setCanAddMarker(bool canAddMarker);
+    void setCanDeleteMarker(bool canDeleteMarker);
 
 signals:
     void currentPageChanged();
@@ -142,6 +198,13 @@ signals:
     void openViewerRequested();
     void resetViewerRequested();
     void cameraViewRequested(const QString& view);
+    void beginSceneAlignmentRequested();
+    void sceneAlignmentRotationRequested(const QString& axis, double degrees);
+    void resetSceneAlignmentRequested();
+    void cancelSceneAlignmentRequested();
+    void saveSceneAlignmentRequested();
+    void addMarkerRequested();
+    void deleteMarkerRequested();
     void visualReadingRequested();
     void manualReadingRequested();
     void showHistoryRequested();
@@ -152,10 +215,15 @@ signals:
     void stopRealtimeRequested();
     void recordRealtimeRequested();
     void settingsRequested();
+    void selectDefaultProjectDirectoryRequested();
+    void openThirdPartyLicensesRequested();
+    void fitViewerRequested();
+    void viewerPreferencesChanged();
 
 private:
     ProjectManager* m_projectManager = nullptr;
     realtime::RealtimeMonitoringController* m_realtimeController = nullptr;
+    AppPreferences* m_preferences = nullptr;
     QString m_currentPage = QStringLiteral("overview");
     QString m_selectedMarkerId;
 
@@ -173,6 +241,9 @@ private:
     QString m_reconstructionArtifactText;
     QString m_engineText;
     QString m_viewerText;
+    bool m_alignmentEditing = false;
+    bool m_canAddMarker = false;
+    bool m_canDeleteMarker = false;
 
     QString m_deviceName;
     QString m_gaugeName;

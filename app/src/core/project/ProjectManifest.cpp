@@ -83,6 +83,10 @@ std::optional<ProjectManifest> ProjectManifest::fromJson(const QJsonObject& json
         && !json.value(QStringLiteral("inspectionRecords")).isArray()) {
         return fail(QStringLiteral("inspectionRecords 必须是数组。"));
     }
+    if (json.contains(QStringLiteral("sceneAlignment"))
+        && !json.value(QStringLiteral("sceneAlignment")).isObject()) {
+        return fail(QStringLiteral("sceneAlignment 必须是对象。"));
+    }
 
     ProjectManifest manifest;
     manifest.m_schemaVersion = schemaVersion;
@@ -110,6 +114,17 @@ std::optional<ProjectManifest> ProjectManifest::fromJson(const QJsonObject& json
                                                 .toString();
     manifest.m_latestReconstructionTask = reconstruction.value(QStringLiteral("latestTask"))
                                               .toObject();
+    if (json.contains(QStringLiteral("sceneAlignment"))) {
+        QString alignmentError;
+        const std::optional<SceneAlignmentTransform> alignment =
+            SceneAlignmentTransform::fromJson(
+                json.value(QStringLiteral("sceneAlignment")).toObject(),
+                &alignmentError);
+        if (!alignment.has_value()) {
+            return fail(alignmentError);
+        }
+        manifest.m_sceneAlignment = *alignment;
+    }
     manifest.m_deviceMarkers = json.value(QStringLiteral("deviceMarkers")).toArray();
     manifest.m_gaugeAssets = json.value(QStringLiteral("gaugeAssets")).toArray();
     manifest.m_inspectionRecords = json.value(QStringLiteral("inspectionRecords")).toArray();
@@ -199,6 +214,9 @@ bool ProjectManifest::validate(QString* error) const
     if (m_name.trimmed().isEmpty()) {
         return fail(QStringLiteral("项目名称不能为空。"));
     }
+    if (!m_sceneAlignment.isValid()) {
+        return fail(QStringLiteral("sceneAlignment 不是有效的旋转。"));
+    }
     for (qsizetype index = 0; index < m_assets.size(); ++index) {
         const QJsonValue value = m_assets.at(index);
         if (!value.isObject()) {
@@ -252,6 +270,7 @@ QJsonObject ProjectManifest::toJson() const
              {QStringLiteral("activeTaskId"), m_reconstructionActiveTaskId},
              {QStringLiteral("latestTask"), m_latestReconstructionTask},
          }},
+        {QStringLiteral("sceneAlignment"), m_sceneAlignment.toJson()},
         {QStringLiteral("deviceMarkers"), m_deviceMarkers},
         {QStringLiteral("gaugeAssets"), m_gaugeAssets},
         {QStringLiteral("inspectionRecords"), m_inspectionRecords},
@@ -274,6 +293,10 @@ const QString& ProjectManifest::reconstructionActiveTaskId() const
 const QJsonObject& ProjectManifest::latestReconstructionTask() const
 {
     return m_latestReconstructionTask;
+}
+const SceneAlignmentTransform& ProjectManifest::sceneAlignment() const
+{
+    return m_sceneAlignment;
 }
 const QJsonArray& ProjectManifest::deviceMarkers() const { return m_deviceMarkers; }
 const QJsonArray& ProjectManifest::gaugeAssets() const { return m_gaugeAssets; }
@@ -327,6 +350,11 @@ void ProjectManifest::setReconstructionMetadata(const QString& activeTaskId,
 {
     m_reconstructionActiveTaskId = activeTaskId;
     m_latestReconstructionTask = latestTask;
+}
+
+void ProjectManifest::setSceneAlignment(const SceneAlignmentTransform& alignment)
+{
+    m_sceneAlignment = alignment;
 }
 
 void ProjectManifest::setDeviceMarkers(const QJsonArray& markers)

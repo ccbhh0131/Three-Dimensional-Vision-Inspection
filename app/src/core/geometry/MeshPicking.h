@@ -5,6 +5,7 @@
 #include "core/mesh/MeshData.h"
 #include "core/viewer/CameraController.h"
 
+#include <QMatrix4x4>
 #include <QPointF>
 #include <QSize>
 
@@ -30,6 +31,14 @@ public:
         const QSize& logicalViewport,
         qreal devicePixelRatio,
         QPointF& logicalPosition);
+
+    static bool transformPoint(const QMatrix4x4& transform,
+                               const QVector3D& source,
+                               QVector3D& target);
+
+    static bool transformRay(const Ray& source,
+                             const QMatrix4x4& transform,
+                             Ray& target);
 
     static SurfaceHit pick(const MeshData& mesh, const Ray& ray);
 

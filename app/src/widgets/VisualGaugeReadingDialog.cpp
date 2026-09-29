@@ -1,4 +1,5 @@
 #include "widgets/VisualGaugeReadingDialog.h"
+#include "widgets/ProductDialogStyle.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -297,6 +298,12 @@ VisualGaugeReadingDialog::VisualGaugeReadingDialog(
     connect(m_cancelButton, &QPushButton::clicked, this, &QDialog::reject);
 
     m_confirmButton->setDefault(true);
+    applyProductDialogStyle(this);
+    styleProductButton(m_externalButton, ProductButtonRole::Secondary);
+    styleProductButton(m_resetRoiButton, ProductButtonRole::Secondary);
+    styleProductButton(m_analyzeButton, ProductButtonRole::Primary);
+    styleProductButton(m_confirmButton, ProductButtonRole::Primary);
+    styleProductButton(m_cancelButton, ProductButtonRole::Secondary);
     updateControls();
     if (!m_projectImages.isEmpty()) {
         chooseProjectImage(0);

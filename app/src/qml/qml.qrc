@@ -27,6 +27,7 @@
         <file>pages/RealtimePage.qml</file>
         <file>pages/HistoryPage.qml</file>
         <file>pages/ReconstructionPage.qml</file>
+        <file>pages/SettingsPage.qml</file>
         <file>icons/project.svg</file>
         <file>icons/scene.svg</file>
         <file>icons/inspection.svg</file>
@@ -34,5 +35,6 @@
         <file>icons/history.svg</file>
         <file>icons/reconstruction.svg</file>
         <file>icons/settings.svg</file>
+        <file alias="THIRD_PARTY_NOTICES.md">../../THIRD_PARTY_NOTICES.md</file>
     </qresource>
 </RCC>

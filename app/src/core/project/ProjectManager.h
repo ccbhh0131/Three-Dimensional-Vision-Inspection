@@ -74,6 +74,8 @@ public:
 
     bool updateReconstructionTask(const ReconstructionTask& task,
                                   QString* error = nullptr);
+    bool setSceneAlignment(const SceneAlignmentTransform& alignment,
+                           QString* error = nullptr);
     std::optional<ReconstructionTask> latestReconstructionTask(QString* error = nullptr) const;
     ReconstructionMeshArtifact latestPoissonMeshArtifact() const;
 

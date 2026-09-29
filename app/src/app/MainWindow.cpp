@@ -5,6 +5,7 @@
 #include "backend/ReconstructionEngineLocator.h"
 #include "core/mesh/PlyMeshLoader.h"
 #include "core/device/GaugeProfile.h"
+#include "core/realtime/GaugeDataSource.h"
 #include "core/realtime/RealtimeMonitoringController.h"
 #include "widgets/DeveloperSettingsDialog.h"
 #include "widgets/GaugeAssetDialog.h"
@@ -14,6 +15,7 @@
 #include "widgets/LogPanel.h"
 #include "widgets/ModelViewerWidget.h"
 #include "widgets/ProjectPanel.h"
+#include "widgets/ProductDialogStyle.h"
 #include "widgets/ReconstructionPanel.h"
 #include "widgets/VisualGaugeReadingDialog.h"
 
@@ -24,8 +26,11 @@
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDialog>
+#include <QDialogButtonBox>
 #include <QDir>
+#include <QFile>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QImageReader>
 #include <QHBoxLayout>
 #include <QInputDialog>
@@ -39,8 +44,8 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QQuickWidget>
-#include <QSettings>
 #include <QSGRendererInterface>
+#include <QTextBrowser>
 #include <QUrl>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -93,39 +98,6 @@ QString productLogText(const QString& text)
     return visibleLines.join(QLatin1Char('\n'));
 }
 
-QString viewerSettingsFilePath()
-{
-    // Keep this small viewer preference outside the Windows registry and next
-    // to the D: drive runtime executable used by the project.
-    return QDir(QCoreApplication::applicationDirPath())
-        .filePath(QStringLiteral("Vision3DInspector.ini"));
-}
-
-QString rememberedProjectDirectory()
-{
-    QSettings settings(viewerSettingsFilePath(), QSettings::IniFormat);
-    const QString remembered = settings
-        .value(QStringLiteral("paths/lastProjectDirectory"))
-        .toString()
-        .trimmed();
-    if (!remembered.isEmpty() && QDir(remembered).exists()) {
-        return QDir(remembered).absolutePath();
-    }
-    return QDir::homePath();
-}
-
-void rememberProjectDirectory(const QString& directory)
-{
-    if (directory.trimmed().isEmpty() || !QDir(directory).exists()) {
-        return;
-    }
-    QSettings settings(viewerSettingsFilePath(), QSettings::IniFormat);
-    settings.setValue(
-        QStringLiteral("paths/lastProjectDirectory"),
-        QDir(directory).absolutePath());
-    settings.sync();
-}
-
 DeviceMarkerVisualState markerVisualStateForGaugeStatus(GaugeStatus status)
 {
     switch (status) {
@@ -141,12 +113,31 @@ DeviceMarkerVisualState markerVisualStateForGaugeStatus(GaugeStatus status)
     return DeviceMarkerVisualState::Unknown;
 }
 
+QString suggestedDeviceMarkerName(const ProjectManager& projectManager)
+{
+    for (int index = 1; ; ++index) {
+        const QString candidate = QStringLiteral("P%1")
+                                      .arg(index, 2, 10, QLatin1Char('0'));
+        bool alreadyUsed = false;
+        for (const DeviceMarker& marker : projectManager.deviceMarkerModel().list()) {
+            if (marker.name.trimmed().compare(candidate, Qt::CaseInsensitive) == 0) {
+                alreadyUsed = true;
+                break;
+            }
+        }
+        if (!alreadyUsed) {
+            return candidate;
+        }
+    }
+}
+
 } // namespace
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
     , m_projectManager(this)
     , m_processRunner(this)
+    , m_appPreferences()
     , m_projectPanel(new ProjectPanel(this))
     , m_imageBrowserPanel(new ImageBrowserPanel(this))
     , m_imagePreviewWidget(new ImagePreviewWidget(this))
@@ -164,6 +155,7 @@ MainWindow::MainWindow(QWidget* parent)
           new realtime::RealtimeMonitoringController(&m_projectManager, this))
     , m_appShellViewModel(new AppShellViewModel(&m_projectManager,
                                                 m_realtimeMonitoringController,
+                                                &m_appPreferences,
                                                 this))
 {
     setWindowTitle(QStringLiteral("三维视觉检测软件"));
@@ -370,9 +362,23 @@ MainWindow::MainWindow(QWidget* parent)
     refreshProjectView();
     m_appShellViewModel->refresh();
     syncModernPage();
+    applyViewerPreferences();
     if (!m_backendPanel->backendRoot().isEmpty()) {
         QTimer::singleShot(0, this, &MainWindow::probeBackend);
     }
+    QTimer::singleShot(0, this, [this]() {
+        if (!m_appPreferences.restoreLastProject()) {
+            return;
+        }
+        const QString manifestPath = m_appPreferences.lastProjectManifest();
+        if (manifestPath.isEmpty() || !QFileInfo::exists(manifestPath)) {
+            return;
+        }
+        QString error;
+        if (!openProjectPath(manifestPath, &error) && !error.isEmpty()) {
+            m_logPanel->appendError(QStringLiteral("恢复上次项目失败: %1").arg(error));
+        }
+    });
 }
 
 void MainWindow::createActions()
@@ -471,9 +477,16 @@ void MainWindow::createModernInterface()
     m_sceneToolbarWidget = new QQuickWidget(m_sceneContainer);
     m_sceneToolbarWidget->setObjectName(QStringLiteral("qmlSceneToolbar"));
     m_sceneToolbarWidget->setMinimumHeight(44);
-    m_sceneToolbarWidget->setMaximumHeight(44);
+    m_sceneToolbarWidget->setMaximumHeight(220);
     configureQmlWidget(m_sceneToolbarWidget,
                        QUrl(QStringLiteral("qrc:/stage5a/SceneToolbar.qml")));
+    if (m_sceneToolbarWidget->rootObject() != nullptr) {
+        connect(m_sceneToolbarWidget->rootObject(),
+                SIGNAL(alignmentPanelVisibilityChanged(bool)),
+                this,
+                SLOT(setSceneAlignmentPanelVisible(bool)));
+    }
+    setSceneAlignmentPanelVisible(false);
     sceneLayout->addWidget(m_sceneToolbarWidget);
     m_previewStack->setParent(m_sceneContainer);
     m_previewStack->setObjectName(QStringLiteral("centralPreviewStack"));
@@ -539,6 +552,18 @@ void MainWindow::createModernInterface()
             this,
             &MainWindow::open3DModel);
     connect(m_appShellViewModel,
+            &AppShellViewModel::fitViewerRequested,
+            this,
+            &MainWindow::fitViewer);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::addMarkerRequested,
+            this,
+            &MainWindow::addDeviceMarker);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::deleteMarkerRequested,
+            this,
+            &MainWindow::deleteDeviceMarker);
+    connect(m_appShellViewModel,
             &AppShellViewModel::resetViewerRequested,
             this,
             &MainWindow::resetViewer);
@@ -546,6 +571,26 @@ void MainWindow::createModernInterface()
             &AppShellViewModel::cameraViewRequested,
             this,
             &MainWindow::setCameraView);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::beginSceneAlignmentRequested,
+            this,
+            &MainWindow::beginSceneAlignment);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::sceneAlignmentRotationRequested,
+            this,
+            &MainWindow::rotateSceneAlignment);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::resetSceneAlignmentRequested,
+            this,
+            &MainWindow::resetSceneAlignment);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::cancelSceneAlignmentRequested,
+            this,
+            &MainWindow::cancelSceneAlignment);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::saveSceneAlignmentRequested,
+            this,
+            &MainWindow::saveSceneAlignment);
     connect(m_appShellViewModel,
             &AppShellViewModel::visualReadingRequested,
             this,
@@ -585,7 +630,19 @@ void MainWindow::createModernInterface()
     connect(m_appShellViewModel,
             &AppShellViewModel::settingsRequested,
             this,
-            &MainWindow::openDeveloperSettings);
+            [this]() { m_appShellViewModel->selectPage(QStringLiteral("settings")); });
+    connect(m_appShellViewModel,
+            &AppShellViewModel::selectDefaultProjectDirectoryRequested,
+            this,
+            &MainWindow::selectDefaultProjectDirectory);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::openThirdPartyLicensesRequested,
+            this,
+            &MainWindow::showThirdPartyLicenses);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::viewerPreferencesChanged,
+            this,
+            &MainWindow::applyViewerPreferences);
     syncModernPage();
 }
 
@@ -600,6 +657,71 @@ void MainWindow::syncModernPage()
     m_pageWidget->setVisible(!scenePage);
     if (m_sceneToolbarWidget != nullptr) {
         m_sceneToolbarWidget->setVisible(scenePage);
+    }
+}
+
+void MainWindow::selectDefaultProjectDirectory()
+{
+    const QString selected = QFileDialog::getExistingDirectory(
+        this,
+        QStringLiteral("选择默认项目目录"),
+        m_appPreferences.projectDialogDirectory());
+    if (selected.isEmpty() || m_appShellViewModel == nullptr) {
+        return;
+    }
+    m_appShellViewModel->setDefaultProjectDirectory(selected);
+}
+
+void MainWindow::showThirdPartyLicenses()
+{
+    QString noticeText;
+    QFile resource(QStringLiteral(":/stage5a/THIRD_PARTY_NOTICES.md"));
+    if (resource.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        noticeText = QString::fromUtf8(resource.readAll());
+    }
+    if (noticeText.isEmpty()) {
+        const QString noticePath = QDir(QCoreApplication::applicationDirPath())
+                                       .filePath(QStringLiteral("THIRD_PARTY_NOTICES.md"));
+        QFile noticeFile(noticePath);
+        if (noticeFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            noticeText = QString::fromUtf8(noticeFile.readAll());
+        }
+    }
+    if (noticeText.isEmpty()) {
+        noticeText = QStringLiteral("当前发布包未找到第三方许可文本。");
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("第三方许可"));
+    dialog.resize(760, 560);
+    auto* layout = new QVBoxLayout(&dialog);
+    auto* browser = new QTextBrowser(&dialog);
+    browser->setOpenExternalLinks(true);
+    browser->setMarkdown(noticeText);
+    layout->addWidget(browser, 1);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    layout->addWidget(buttons);
+    applyProductDialogStyle(&dialog);
+    styleProductButton(buttons->button(QDialogButtonBox::Close),
+                       ProductButtonRole::Secondary);
+    dialog.exec();
+}
+
+void MainWindow::applyViewerPreferences()
+{
+    if (m_modelViewerWidget == nullptr) {
+        return;
+    }
+    m_modelViewerWidget->setOrbitSensitivity(
+        static_cast<float>(m_appPreferences.orbitSensitivity()));
+    m_modelViewerWidget->setMarkerSize(
+        static_cast<float>(m_appPreferences.markerSize()));
+    if (m_viewerMeshLoaded && m_modelViewerWidget->hasMesh()) {
+        refreshMarkerPresentation();
+    } else {
+        m_modelViewerWidget->update();
     }
 }
 
@@ -619,20 +741,21 @@ void MainWindow::ensureModernSelection(const QString& markerId)
 
 void MainWindow::createProject()
 {
-    bool accepted = false;
-    const QString name = QInputDialog::getText(this,
-                                               QStringLiteral("新建项目"),
-                                               QStringLiteral("项目名称:"),
-                                               QLineEdit::Normal,
-                                               QString(),
-                                               &accepted)
-                            .trimmed();
-    if (!accepted) {
+    QInputDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("新建项目"));
+    dialog.setLabelText(QStringLiteral("项目名称"));
+    dialog.setTextValue(QString());
+    dialog.setTextEchoMode(QLineEdit::Normal);
+    dialog.setOkButtonText(QStringLiteral("创建"));
+    dialog.setCancelButtonText(QStringLiteral("取消"));
+    applyProductDialogStyle(&dialog);
+    if (dialog.exec() != QDialog::Accepted) {
         return;
     }
+    const QString name = dialog.textValue().trimmed();
 
     const QString parentDirectory = QFileDialog::getExistingDirectory(
-        this, QStringLiteral("选择项目保存目录"), rememberedProjectDirectory());
+        this, QStringLiteral("选择项目保存目录"), m_appPreferences.projectDialogDirectory());
     if (parentDirectory.isEmpty()) {
         return;
     }
@@ -643,7 +766,11 @@ void MainWindow::createProject()
         return;
     }
 
-    rememberProjectDirectory(m_projectManager.projectDirectory());
+    m_appPreferences.rememberProjectDirectory(m_projectManager.projectDirectory());
+    if (m_appPreferences.restoreLastProject()) {
+        m_appPreferences.setLastProjectManifest(
+            QDir(m_projectManager.projectDirectory()).filePath(QStringLiteral("project.json")));
+    }
     m_logPanel->appendInfo(QStringLiteral("新建项目成功: %1").arg(m_projectManager.projectDirectory()));
 }
 
@@ -652,7 +779,7 @@ void MainWindow::openProject()
     const QString manifestPath = QFileDialog::getOpenFileName(
         this,
         QStringLiteral("打开项目"),
-        rememberedProjectDirectory(),
+        m_appPreferences.projectDialogDirectory(),
         QStringLiteral("Project Manifest (project.json)"));
     if (manifestPath.isEmpty()) {
         return;
@@ -680,7 +807,11 @@ bool MainWindow::openProjectPath(const QString& fileOrDirectory, QString* error)
     }
     const bool opened = m_projectManager.openProject(fileOrDirectory, error);
     if (opened) {
-        rememberProjectDirectory(m_projectManager.projectDirectory());
+        m_appPreferences.rememberProjectDirectory(m_projectManager.projectDirectory());
+        if (m_appPreferences.restoreLastProject()) {
+            m_appPreferences.setLastProjectManifest(
+                QDir(m_projectManager.projectDirectory()).filePath(QStringLiteral("project.json")));
+        }
     }
     return opened;
 }
@@ -760,12 +891,13 @@ void MainWindow::removeSelectedImage()
         return;
     }
 
-    const QMessageBox::StandardButton answer = QMessageBox::question(
-        this,
-        QStringLiteral("从项目中删除"),
-        QStringLiteral("确认从项目中删除图像资产“%1”？\n原始外部文件不会被删除。")
-            .arg(asset->originalFileName));
-    if (answer != QMessageBox::Yes) {
+    if (!confirmProductAction(
+            this,
+            QStringLiteral("从项目中删除"),
+            QStringLiteral("确认删除图像资产“%1”？原始外部文件不会被删除。")
+                .arg(asset->originalFileName),
+            QStringLiteral("删除"),
+            true)) {
         return;
     }
 
@@ -1167,6 +1299,9 @@ void MainWindow::open3DModel()
         return;
     }
 
+    m_modelViewerWidget->setSceneAlignment(
+        m_projectManager.currentManifest()->sceneAlignment());
+
     m_viewerMeshLoaded = true;
     m_viewerProjectDirectory = projectDirectory;
     m_viewerTaskId = artifact.taskId;
@@ -1181,6 +1316,17 @@ void MainWindow::open3DModel()
                                   .arg(artifact.path)
                                   .arg(loadResult.metrics.loadMilliseconds, 0, 'f', 2)
                                   .arg(loadResult.metrics.normalGenerationMilliseconds, 0, 'f', 2));
+}
+
+void MainWindow::fitViewer()
+{
+    if (!m_viewerMeshLoaded || m_modelViewerWidget == nullptr
+        || !m_modelViewerWidget->hasMesh()) {
+        open3DModel();
+        return;
+    }
+    m_modelViewerWidget->fitToView();
+    m_previewStack->setCurrentWidget(m_modelViewerWidget);
 }
 
 void MainWindow::resetViewer()
@@ -1223,8 +1369,102 @@ void MainWindow::setCameraView(const QString& view)
     m_previewStack->setCurrentWidget(m_modelViewerWidget);
 }
 
+void MainWindow::beginSceneAlignment()
+{
+    if (!m_viewerMeshLoaded || m_modelViewerWidget == nullptr
+        || !m_modelViewerWidget->hasMesh()
+        || !m_projectManager.currentManifest().has_value()) {
+        m_logPanel->appendError(QStringLiteral("无法开始方向校正：当前没有已加载的三维模型。"));
+        if (m_appShellViewModel != nullptr) {
+            m_appShellViewModel->setAlignmentEditing(false);
+        }
+        return;
+    }
+
+    m_originalSceneAlignment = m_projectManager.currentManifest()->sceneAlignment();
+    m_editSceneAlignment = m_originalSceneAlignment;
+    m_sceneAlignmentEditing = true;
+    m_modelViewerWidget->setSceneAlignment(m_editSceneAlignment);
+    m_appShellViewModel->setAlignmentEditing(true);
+    m_logPanel->appendInfo(QStringLiteral(
+        "已进入方向校正：当前修改仅为临时预览，点击保存方向后才写入 project.json。"));
+}
+
+void MainWindow::rotateSceneAlignment(const QString& axis, double degrees)
+{
+    if (!m_sceneAlignmentEditing || m_modelViewerWidget == nullptr
+        || !m_modelViewerWidget->hasMesh()) {
+        return;
+    }
+    if (!std::isfinite(degrees)
+        || !m_editSceneAlignment.rotateByAxis(axis, static_cast<float>(degrees))) {
+        m_logPanel->appendError(QStringLiteral("方向校正失败：旋转轴或角度无效。"));
+        return;
+    }
+    m_modelViewerWidget->setSceneAlignment(m_editSceneAlignment);
+}
+
+void MainWindow::resetSceneAlignment()
+{
+    if (!m_sceneAlignmentEditing || m_modelViewerWidget == nullptr
+        || !m_modelViewerWidget->hasMesh()) {
+        return;
+    }
+    m_editSceneAlignment.reset();
+    m_modelViewerWidget->setSceneAlignment(m_editSceneAlignment);
+    m_logPanel->appendInfo(QStringLiteral("方向校正已临时重置为 Identity；点击保存方向后才会持久化。"));
+}
+
+void MainWindow::cancelSceneAlignment()
+{
+    if (!m_sceneAlignmentEditing) {
+        return;
+    }
+    m_editSceneAlignment = m_originalSceneAlignment;
+    if (m_modelViewerWidget != nullptr && m_modelViewerWidget->hasMesh()) {
+        m_modelViewerWidget->setSceneAlignment(m_originalSceneAlignment);
+    }
+    m_sceneAlignmentEditing = false;
+    m_appShellViewModel->setAlignmentEditing(false);
+    m_logPanel->appendInfo(QStringLiteral("已取消方向校正，project.json 未修改。"));
+}
+
+void MainWindow::saveSceneAlignment()
+{
+    if (!m_sceneAlignmentEditing || m_modelViewerWidget == nullptr
+        || !m_modelViewerWidget->hasMesh()) {
+        return;
+    }
+
+    QString error;
+    if (!m_projectManager.setSceneAlignment(m_editSceneAlignment, &error)) {
+        showProjectError(error);
+        return;
+    }
+
+    m_originalSceneAlignment = m_editSceneAlignment;
+    m_modelViewerWidget->setSceneAlignment(m_originalSceneAlignment);
+    m_modelViewerWidget->fitToView();
+    m_sceneAlignmentEditing = false;
+    m_appShellViewModel->setAlignmentEditing(false);
+    m_logPanel->appendInfo(QStringLiteral("模型方向已保存，并按校准后的模型边界重新适配视图。"));
+}
+
+void MainWindow::setSceneAlignmentPanelVisible(bool visible)
+{
+    if (m_sceneToolbarWidget == nullptr) {
+        return;
+    }
+    const int height = visible ? 214 : 44;
+    m_sceneToolbarWidget->setMinimumHeight(height);
+    m_sceneToolbarWidget->setMaximumHeight(height);
+}
+
 void MainWindow::scheduleViewerFit()
 {
+    if (!m_appPreferences.autoFit()) {
+        return;
+    }
     QTimer::singleShot(0, m_modelViewerWidget, [this]() {
         // Let QStackedWidget/QOpenGLWidget finish the visibility and viewport
         // update before recalculating the projection from the mesh bounds.
@@ -1246,6 +1486,13 @@ void MainWindow::onSurfacePicked(const SurfaceHit& hit)
     if (!hit.isValid()) {
         onSurfaceMissed();
         return;
+    }
+
+    // A new surface hit starts a new marker-placement transaction.  Clear a
+    // previous marker selection first so the add/delete actions cannot remain
+    // coupled to the marker that was selected before this pick.
+    if (!m_selectedMarkerId.isEmpty() && m_modelViewerWidget != nullptr) {
+        m_modelViewerWidget->setSelectedMarker(QString());
     }
 
     m_pendingSurfaceHit = hit;
@@ -1361,15 +1608,19 @@ void MainWindow::addDeviceMarker()
         return;
     }
 
-    bool accepted = false;
-    const QString name = QInputDialog::getText(this,
-                                               QStringLiteral("添加设备标记"),
-                                               QStringLiteral("设备名称 / ID:"),
-                                               QLineEdit::Normal,
-                                               QStringLiteral("P01"),
-                                               &accepted)
-                            .trimmed();
-    if (!accepted || name.isEmpty()) {
+    QInputDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("添加设备"));
+    dialog.setLabelText(QStringLiteral("设备名称"));
+    dialog.setTextValue(suggestedDeviceMarkerName(m_projectManager));
+    dialog.setTextEchoMode(QLineEdit::Normal);
+    dialog.setOkButtonText(QStringLiteral("添加"));
+    dialog.setCancelButtonText(QStringLiteral("取消"));
+    applyProductDialogStyle(&dialog);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    const QString name = dialog.textValue().trimmed();
+    if (name.isEmpty()) {
         return;
     }
 
@@ -1402,19 +1653,25 @@ void MainWindow::deleteDeviceMarker()
     }
 
     const QString markerId = m_selectedMarkerId;
+    const std::optional<DeviceMarker> marker =
+        m_projectManager.deviceMarkerById(markerId);
+    if (!marker.has_value()) {
+        m_selectedMarkerId.clear();
+        updateMarkerControls();
+        return;
+    }
     const std::optional<GaugeAsset> boundGauge =
         m_projectManager.gaugeAssetForMarker(markerId);
-    if (boundGauge.has_value()) {
-        const QMessageBox::StandardButton answer = QMessageBox::question(
-            this,
-            QStringLiteral("删除设备标记"),
-            QStringLiteral("设备标记 %1 已绑定仪表资产“%2”。删除标记将同时删除该仪表资产，是否继续？")
-                .arg(markerId, boundGauge->name),
-            QMessageBox::Yes | QMessageBox::No,
-            QMessageBox::No);
-        if (answer != QMessageBox::Yes) {
-            return;
-        }
+    const QString confirmationText = boundGauge.has_value()
+        ? QStringLiteral("设备标记“%1”已绑定仪表资产“%2”。删除后会同时移除该仪表资产及其巡检记录，是否继续？")
+              .arg(marker->name, boundGauge->name)
+        : QStringLiteral("确定删除设备标记“%1”吗？此操作不可撤销。").arg(marker->name);
+    if (!confirmProductAction(this,
+                              QStringLiteral("删除设备标记"),
+                              confirmationText,
+                              QStringLiteral("删除"),
+                              true)) {
+        return;
     }
     if (boundGauge.has_value()) {
         m_realtimeMonitoringController->stopForGauge(boundGauge->id);
@@ -1509,25 +1766,26 @@ void MainWindow::updateGaugeReading()
         return;
     }
 
-    bool accepted = false;
-    const QString text = QInputDialog::getText(this,
-                                               QStringLiteral("手动更新读数"),
-                                               QStringLiteral("读数:"),
-                                               QLineEdit::Normal,
-                                               existing->latestValue.has_value()
-                                                   ? QString::number(*existing->latestValue, 'g', 15)
-                                                   : QString(),
-                                               &accepted)
-                             .trimmed();
-    if (!accepted) {
+    QInputDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("手动更新读数"));
+    dialog.setLabelText(QStringLiteral("读数"));
+    dialog.setTextValue(existing->latestValue.has_value()
+                            ? QString::number(*existing->latestValue, 'g', 15)
+                            : QString());
+    dialog.setTextEchoMode(QLineEdit::Normal);
+    dialog.setOkButtonText(QStringLiteral("保存"));
+    dialog.setCancelButtonText(QStringLiteral("取消"));
+    applyProductDialogStyle(&dialog);
+    if (dialog.exec() != QDialog::Accepted) {
         return;
     }
+    const QString text = dialog.textValue().trimmed();
     bool ok = false;
     const double value = text.toDouble(&ok);
     if (!ok || !std::isfinite(value)) {
-        QMessageBox::warning(this,
-                             QStringLiteral("读数无效"),
-                             QStringLiteral("读数必须是有限数字。"));
+        showProductWarning(this,
+                           QStringLiteral("读数无效"),
+                           QStringLiteral("读数必须是有限数字。"));
         return;
     }
     QString error;
@@ -1704,7 +1962,11 @@ void MainWindow::startMockSensor()
         return;
     }
     QString error;
-    if (!m_realtimeMonitoringController->startMockSensor(gauge->id, &error)) {
+    if (!m_realtimeMonitoringController->startMockSensor(
+            gauge->id,
+            realtime::MockSensorDataSource::defaultSequence(),
+            m_appPreferences.realtimePollIntervalMs(),
+            &error)) {
         showProjectError(error);
         return;
     }
@@ -1859,6 +2121,9 @@ void MainWindow::showGaugeHistory()
         viewImageButton->setEnabled(false);
         detailLabel->setText(QStringLiteral("暂无历史记录。"));
     }
+    applyProductDialogStyle(&dialog);
+    styleProductButton(viewImageButton, ProductButtonRole::Secondary);
+    styleProductButton(closeButton, ProductButtonRole::Secondary);
     dialog.exec();
 }
 
@@ -1874,13 +2139,13 @@ void MainWindow::deleteGaugeAsset()
         refreshSelectedMarkerDetails();
         return;
     }
-    const QMessageBox::StandardButton answer = QMessageBox::question(
-        this,
-        QStringLiteral("删除仪表资产"),
-        QStringLiteral("确定删除仪表资产“%1”吗？设备标记将保留。").arg(existing->name),
-        QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No);
-    if (answer != QMessageBox::Yes) {
+    if (!confirmProductAction(
+            this,
+            QStringLiteral("删除仪表资产"),
+            QStringLiteral("确定删除仪表资产“%1”吗？设备标记会保留，但关联巡检记录也会删除。")
+                .arg(existing->name),
+            QStringLiteral("删除"),
+            true)) {
         return;
     }
     m_realtimeMonitoringController->stopForGauge(existing->id);
@@ -1896,6 +2161,12 @@ void MainWindow::deleteGaugeAsset()
 
 void MainWindow::clearViewerAssociation()
 {
+    m_sceneAlignmentEditing = false;
+    m_originalSceneAlignment.reset();
+    m_editSceneAlignment.reset();
+    if (m_appShellViewModel != nullptr) {
+        m_appShellViewModel->setAlignmentEditing(false);
+    }
     clearPendingSurfaceHit();
     if (m_modelViewerWidget != nullptr && m_modelViewerWidget->hasMesh()) {
         m_modelViewerWidget->clearMesh();
@@ -1964,7 +2235,7 @@ void MainWindow::refreshMarkerPresentation()
         }
         views.append(view);
     }
-    m_modelViewerWidget->setMarkers(views);
+    m_modelViewerWidget->setMarkers(m_appPreferences.showMarkers() ? views : QVector<DeviceMarkerView>());
     if (!m_selectedMarkerId.isEmpty()
         && !m_projectManager.deviceMarkerById(m_selectedMarkerId).has_value()) {
         m_selectedMarkerId.clear();
@@ -1988,9 +2259,6 @@ void MainWindow::refreshMarkerPresentation()
 
 void MainWindow::updateMarkerControls()
 {
-    if (m_reconstructionPanel == nullptr) {
-        return;
-    }
     const bool canAdd = m_hasPendingSurfaceHit
         && m_viewerMeshLoaded
         && m_pendingSurfaceTaskId == m_viewerTaskId
@@ -1999,6 +2267,13 @@ void MainWindow::updateMarkerControls()
     const bool canDelete = !m_selectedMarkerId.isEmpty()
         && m_viewerMeshLoaded
         && m_projectManager.deviceMarkerById(m_selectedMarkerId).has_value();
+    if (m_appShellViewModel != nullptr) {
+        m_appShellViewModel->setCanAddMarker(canAdd);
+        m_appShellViewModel->setCanDeleteMarker(canDelete);
+    }
+    if (m_reconstructionPanel == nullptr) {
+        return;
+    }
     m_reconstructionPanel->setMarkerActionEnabled(canAdd, canDelete);
     const bool hasSelectedMarker = !m_selectedMarkerId.isEmpty()
         && m_viewerMeshLoaded
@@ -2023,7 +2298,7 @@ void MainWindow::showImagePreview()
 void MainWindow::showProjectError(const QString& message)
 {
     m_logPanel->appendError(message);
-    QMessageBox::warning(this, QStringLiteral("项目操作失败"), message);
+    showProductWarning(this, QStringLiteral("项目操作失败"), message);
 }
 
 } // namespace vision3d

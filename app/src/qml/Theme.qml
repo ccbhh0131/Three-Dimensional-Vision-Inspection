@@ -2,25 +2,59 @@ import QtQuick 2.15
 import QtQml 2.15
 
 QtObject {
-    readonly property color bg: "#F6F5F2"
-    readonly property color surface: "#FFFFFF"
-    readonly property color surfaceMuted: "#F0EFEC"
-    readonly property color border: "#E4E1DC"
-    readonly property color divider: "#EBE9E5"
-    readonly property color textPrimary: "#202622"
-    readonly property color textSecondary: "#68706A"
-    readonly property color textMuted: "#969C97"
-    readonly property color icon: "#59615B"
-    readonly property color primary: "#1F6A4E"
-    readonly property color primaryHover: "#195A42"
-    readonly property color primaryPressed: "#144C38"
-    readonly property color primarySoft: "#E4EFE9"
-    readonly property color primarySelected: "#D7E8DF"
-    readonly property color normal: "#2E8B57"
-    readonly property color warning: "#D99A2B"
-    readonly property color alarm: "#D94B3D"
-    readonly property color unknown: "#7C8580"
+    // Light surfaces use graphite text; these are the single source of truth
+    // for the QML presentation layer.
+    readonly property color bg: "#F7F5F0"
+    readonly property color surface: "#FFFEFB"
+    readonly property color surfaceMuted: "#F2F0EB"
+    readonly property color surfaceHover: "#ECEAE4"
+    readonly property color border: "#DDD9D1"
+    readonly property color borderStrong: "#C8C4BB"
+    readonly property color divider: "#E7E3DB"
+    readonly property color textPrimary: "#202522"
+    readonly property color textSecondary: "#59615C"
+    readonly property color textMuted: "#747D77"
+    readonly property color textDisabled: "#8C948F"
+    readonly property color icon: "#59615C"
+
+    readonly property color primary: "#176B4D"
+    readonly property color primaryHover: "#145D43"
+    readonly property color primaryPressed: "#104D38"
+    // QML reserves names beginning with "on" for signal handlers.
+    readonly property color primaryForeground: "#FFFFFF"
+    readonly property color primarySoft: "#E9F1EC"
+    readonly property color primarySelected: "#DDEBE3"
+
+    readonly property color secondaryButtonBackground: "#FFFEFB"
+    readonly property color secondaryButtonHover: "#F2F0EB"
+    readonly property color secondaryButtonPressed: "#E9F1EC"
+    readonly property color secondaryButtonText: "#285D49"
+    readonly property color secondaryButtonBorder: "#D8D5CE"
+
+    readonly property color disabledBackground: "#F0EFEB"
+    readonly property color disabledBorder: "#E1DED7"
+    readonly property color disabledText: "#8C948F"
+
+    readonly property color normal: "#2D7A57"
+    readonly property color warning: "#B87919"
+    readonly property color alarm: "#B4443F"
+    readonly property color unknown: "#737C77"
     readonly property color info: "#6D7D74"
+
+    // Dark three-dimensional toolbar tokens intentionally remain separate
+    // from the light application surfaces.
+    readonly property color toolbarBackground: "#2F3733"
+    readonly property color toolbarTextPrimary: "#F4F6F4"
+    readonly property color toolbarTextSecondary: "#C3CBC6"
+    readonly property color toolbarTextMuted: "#A9B3AD"
+    readonly property color toolbarBorder: "#647269"
+    readonly property color toolbarHover: "#45534B"
+    readonly property color toolbarPressed: "#3F4B44"
+    readonly property color toolbarFocus: "#A7B5AC"
+    readonly property color toolbarDivider: "#58645D"
+    readonly property color toolbarDisabledBackground: "#36403A"
+    readonly property color toolbarDisabledBorder: "#4A554E"
+    readonly property color toolbarDisabledText: "#7F8A82"
     readonly property int space4: 4
     readonly property int space8: 8
     readonly property int space12: 12

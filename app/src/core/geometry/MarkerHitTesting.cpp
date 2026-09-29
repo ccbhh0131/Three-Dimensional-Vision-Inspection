@@ -31,9 +31,32 @@ bool MarkerHitTesting::worldToLogicalPosition(
     qreal devicePixelRatio,
     QPointF& logicalPosition)
 {
+    QMatrix4x4 identity;
+    identity.setToIdentity();
+    return worldToLogicalPosition(camera,
+                                   worldPosition,
+                                   identity,
+                                   logicalViewport,
+                                   devicePixelRatio,
+                                   logicalPosition);
+}
+
+bool MarkerHitTesting::worldToLogicalPosition(
+    const CameraController& camera,
+    const QVector3D& rawWorldPosition,
+    const QMatrix4x4& modelMatrix,
+    const QSize& logicalViewport,
+    qreal devicePixelRatio,
+    QPointF& logicalPosition)
+{
     if (!camera.hasBounds() || !camera.isFinite()
         || logicalViewport.width() <= 0 || logicalViewport.height() <= 0
         || !std::isfinite(devicePixelRatio) || devicePixelRatio <= 0.0) {
+        return false;
+    }
+
+    QVector3D worldPosition;
+    if (!MeshPicking::transformPoint(modelMatrix, rawWorldPosition, worldPosition)) {
         return false;
     }
 
@@ -75,6 +98,26 @@ std::optional<QString> MarkerHitTesting::hitTest(
     qreal devicePixelRatio,
     qreal radiusPixels)
 {
+    QMatrix4x4 identity;
+    identity.setToIdentity();
+    return hitTest(markers,
+                   camera,
+                   identity,
+                   logicalPosition,
+                   logicalViewport,
+                   devicePixelRatio,
+                   radiusPixels);
+}
+
+std::optional<QString> MarkerHitTesting::hitTest(
+    const QList<DeviceMarkerView>& markers,
+    const CameraController& camera,
+    const QMatrix4x4& modelMatrix,
+    const QPointF& logicalPosition,
+    const QSize& logicalViewport,
+    qreal devicePixelRatio,
+    qreal radiusPixels)
+{
     if (!isFinitePoint(logicalPosition) || !std::isfinite(radiusPixels)
         || radiusPixels <= 0.0) {
         return std::nullopt;
@@ -87,6 +130,7 @@ std::optional<QString> MarkerHitTesting::hitTest(
         QPointF markerPosition;
         if (!worldToLogicalPosition(camera,
                                     marker.worldPosition,
+                                    modelMatrix,
                                     logicalViewport,
                                     devicePixelRatio,
                                     markerPosition)) {

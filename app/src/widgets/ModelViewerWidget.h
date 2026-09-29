@@ -4,6 +4,7 @@
 #include "core/geometry/MeshPicking.h"
 #include "core/mesh/MeshData.h"
 #include "core/viewer/CameraController.h"
+#include "core/viewer/SceneAlignmentTransform.h"
 #include "render/MarkerRenderer.h"
 #include "render/MeshRenderer.h"
 
@@ -29,6 +30,10 @@ public:
 
     void setMesh(MeshData mesh);
     void clearMesh();
+    void setSceneAlignment(const SceneAlignmentTransform& alignment);
+    const SceneAlignmentTransform& sceneAlignment() const;
+    void setOrbitSensitivity(float sensitivity);
+    void setMarkerSize(float scale);
     bool fitToView();
     void resetView();
     void setFrontView();
@@ -80,6 +85,8 @@ private:
 
     void handleContextAboutToBeDestroyed();
     void uploadPendingMesh();
+    void updateModelMatrix();
+    BoundingBox alignedMeshBounds() const;
     std::optional<QString> markerIdAt(const QPointF& logicalPosition) const;
     void clearMarkerPresentation();
 
@@ -87,6 +94,7 @@ private:
     MarkerRenderer m_markerRenderer;
     CameraController m_camera;
     MeshData m_mesh;
+    SceneAlignmentTransform m_sceneAlignment;
     bool m_hasMesh = false;
     bool m_meshPendingUpload = false;
     bool m_contextAttached = false;

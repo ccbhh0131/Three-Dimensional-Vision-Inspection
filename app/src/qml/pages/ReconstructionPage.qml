@@ -52,7 +52,7 @@ Item {
                         }
                     }
                     AppButton {
-                        text: "技术设置"
+                        text: "设置"
                         compact: true
                         theme: theme
                         onClicked: viewModel.requestSettings()
@@ -94,7 +94,7 @@ Item {
                 height: 126
                 theme: theme
                 PanelTitle { title: "操作提示"; theme: theme }
-                Text { text: "重建控制、日志、COLMAP 配置和产物校验继续使用原有 QWidget / ReconstructionController。"; color: theme.textSecondary; font.family: theme.cjkFontFamily; font.pixelSize: 12; wrapMode: Text.WordWrap; width: parent.width }
+                Text { text: "重建控制、日志与产物校验继续使用现有工作流。"; color: theme.textSecondary; font.family: theme.cjkFontFamily; font.pixelSize: 12; wrapMode: Text.WordWrap; width: parent.width }
             }
         }
     }

@@ -3,6 +3,7 @@
 #include "core/assets/AssetRecord.h"
 #include "core/device/GaugeAsset.h"
 #include "core/inspection/InspectionRecord.h"
+#include "core/viewer/SceneAlignmentTransform.h"
 
 #include <QJsonArray>
 #include <QJsonObject>
@@ -39,6 +40,7 @@ public:
     const QString& reconstructionState() const;
     const QString& reconstructionActiveTaskId() const;
     const QJsonObject& latestReconstructionTask() const;
+    const SceneAlignmentTransform& sceneAlignment() const;
     const QJsonArray& deviceMarkers() const;
     const QJsonArray& gaugeAssets() const;
     const QJsonArray& inspectionRecords() const;
@@ -52,6 +54,7 @@ public:
     void setReconstructionState(const QString& state);
     void setReconstructionMetadata(const QString& activeTaskId,
                                    const QJsonObject& latestTask);
+    void setSceneAlignment(const SceneAlignmentTransform& alignment);
     void setDeviceMarkers(const QJsonArray& markers);
     void setGaugeAssets(const QJsonArray& assets);
     void setInspectionRecords(const QJsonArray& records);
@@ -68,6 +71,7 @@ private:
     QString m_reconstructionState;
     QString m_reconstructionActiveTaskId;
     QJsonObject m_latestReconstructionTask;
+    SceneAlignmentTransform m_sceneAlignment;
     QJsonArray m_deviceMarkers;
     QJsonArray m_gaugeAssets;
     QJsonArray m_inspectionRecords;

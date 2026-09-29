@@ -1,6 +1,7 @@
 #include "app/MainWindow.h"
 
 #include <QApplication>
+#include <QIcon>
 #include <QSurfaceFormat>
 
 int main(int argc, char* argv[])
@@ -19,6 +20,8 @@ int main(int argc, char* argv[])
     QCoreApplication::setOrganizationName(QStringLiteral("Vision3DInspector"));
     QCoreApplication::setApplicationName(QStringLiteral("Vision3DInspector"));
     QCoreApplication::setApplicationVersion(QStringLiteral("0.3.0"));
+    application.setWindowIcon(
+        QIcon(QStringLiteral(":/branding/icons/Vision3DInspector.ico")));
 
     vision3d::MainWindow window;
     window.resize(1120, 720);

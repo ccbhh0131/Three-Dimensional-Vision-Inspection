@@ -1,0 +1,6 @@
+<RCC>
+    <qresource prefix="/branding">
+        <file>icons/Vision3DInspector.ico</file>
+        <file>icons/Vision3DInspector_Logo_Transparent.png</file>
+    </qresource>
+</RCC>

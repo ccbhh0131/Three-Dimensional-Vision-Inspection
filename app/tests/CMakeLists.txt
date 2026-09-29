@@ -21,7 +21,7 @@ if(MSVC)
     target_compile_options(test_project_manifest PRIVATE /FS)
 endif()
 target_include_directories(test_project_manifest PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
-target_link_libraries(test_project_manifest PRIVATE Qt6::Core Qt6::Test)
+target_link_libraries(test_project_manifest PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
 add_test(NAME project_manifest COMMAND test_project_manifest)
 
 add_executable(test_colmap_backend
@@ -86,8 +86,11 @@ add_executable(test_main_window
     test_main_window.cpp
     ../src/app/MainWindow.cpp
     ../src/app/MainWindow.h
+    ../src/app/AppPreferences.cpp
+    ../src/app/AppPreferences.h
     ../src/app/AppShellViewModel.cpp
     ../src/app/AppShellViewModel.h
+    ../resources/branding.qrc
     ../src/qml/qml.qrc
     ../src/core/project/ProjectManager.cpp
     ../src/core/project/ProjectManager.h
@@ -148,6 +151,8 @@ add_executable(test_main_window
     ../src/widgets/LogPanel.h
     ../src/widgets/ProjectPanel.cpp
     ../src/widgets/ProjectPanel.h
+    ../src/widgets/ProductDialogStyle.cpp
+    ../src/widgets/ProductDialogStyle.h
     ../src/widgets/ReconstructionPanel.cpp
     ../src/widgets/ReconstructionPanel.h
     ../src/core/geometry/BoundingBox.cpp

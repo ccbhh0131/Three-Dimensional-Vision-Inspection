@@ -14,7 +14,7 @@ Button {
     contentItem: Text {
         id: label
         text: root.text
-        color: theme.primary
+        color: root.enabled ? theme.secondaryButtonText : theme.disabledText
         font.family: theme.cjkFontFamily
         font.pixelSize: root.compact ? 12 : 13
         font.weight: Font.DemiBold
@@ -24,10 +24,10 @@ Button {
     }
     background: Rectangle {
         radius: theme.radiusInput
-        color: !root.enabled ? theme.surfaceMuted : (root.pressed ? theme.primarySoft : (root.hovered ? theme.primarySoft : theme.surface))
-        border.color: root.activeFocus ? theme.primaryHover : (root.hovered || root.pressed ? theme.primary : theme.border)
+        color: !root.enabled ? theme.disabledBackground : (root.pressed ? theme.secondaryButtonPressed : (root.hovered ? theme.secondaryButtonHover : theme.secondaryButtonBackground))
+        border.color: !root.enabled ? theme.disabledBorder : (root.activeFocus ? theme.primaryHover : (root.hovered || root.pressed ? theme.secondaryButtonText : theme.secondaryButtonBorder))
         border.width: root.activeFocus ? 2 : 1
-        opacity: root.enabled ? 1.0 : 0.55
+        opacity: 1.0
         Behavior on color { ColorAnimation { duration: 140 } }
     }
 }

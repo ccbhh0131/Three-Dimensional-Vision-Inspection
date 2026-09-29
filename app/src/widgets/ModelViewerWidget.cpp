@@ -46,18 +46,21 @@ void ModelViewerWidget::setMesh(MeshData mesh)
     if (!mesh.isValid(&validationError)) {
         clearMarkerPresentation();
         m_mesh = MeshData();
+        m_sceneAlignment.reset();
         m_hasMesh = false;
         m_meshPendingUpload = false;
         m_meshError = QStringLiteral("MeshData validation failed: %1").arg(validationError);
         m_camera.clear();
         m_cameraError.clear();
         m_lastSurfaceHit = SurfaceHit();
+        updateModelMatrix();
         update();
         return;
     }
 
     clearMarkerPresentation();
     m_mesh = std::move(mesh);
+    m_sceneAlignment.reset();
     m_hasMesh = true;
     m_meshPendingUpload = true;
     m_meshError.clear();
@@ -67,7 +70,8 @@ void ModelViewerWidget::setMesh(MeshData mesh)
     m_lastSurfaceHit = SurfaceHit();
     m_frameTimer.start();
     m_camera.clear();
-    if (!m_camera.fitToBounds(m_mesh.boundingBox)) {
+    updateModelMatrix();
+    if (!m_camera.fitToBounds(alignedMeshBounds())) {
         m_cameraError = QStringLiteral(
             "camera fit requires a finite, non-degenerate MeshData bounding box");
     } else {
@@ -96,6 +100,7 @@ void ModelViewerWidget::clearMesh()
     }
 
     m_mesh = MeshData();
+    m_sceneAlignment.reset();
     m_hasMesh = false;
     m_meshPendingUpload = false;
     m_meshError.clear();
@@ -110,13 +115,39 @@ void ModelViewerWidget::clearMesh()
     update();
 }
 
+void ModelViewerWidget::setSceneAlignment(const SceneAlignmentTransform& alignment)
+{
+    m_sceneAlignment = alignment;
+    if (!m_sceneAlignment.isValid()) {
+        m_sceneAlignment.reset();
+    }
+    updateModelMatrix();
+    update();
+}
+
+const SceneAlignmentTransform& ModelViewerWidget::sceneAlignment() const
+{
+    return m_sceneAlignment;
+}
+
+void ModelViewerWidget::setOrbitSensitivity(float sensitivity)
+{
+    m_camera.setOrbitSensitivity(sensitivity);
+}
+
+void ModelViewerWidget::setMarkerSize(float scale)
+{
+    m_markerRenderer.setPointSizeScale(scale);
+    update();
+}
+
 bool ModelViewerWidget::fitToView()
 {
     if (!m_hasMesh) {
         return false;
     }
     m_camera.clear();
-    const bool fitted = m_camera.fitToBounds(m_mesh.boundingBox);
+    const bool fitted = m_camera.fitToBounds(alignedMeshBounds());
     m_cameraError = fitted
         ? QString()
         : QStringLiteral("camera fit requires a finite, non-degenerate MeshData bounding box");
@@ -194,7 +225,15 @@ SurfaceHit ModelViewerWidget::pickAt(const QPointF& logicalPosition)
                 &failureReason)) {
             result.failureReason = failureReason;
         } else {
-            result = MeshPicking::pick(m_mesh, ray);
+            Ray rawRay;
+            if (!MeshPicking::transformRay(
+                    ray,
+                    m_sceneAlignment.inverseMatrix(m_mesh.boundingBox.center()),
+                    rawRay)) {
+                result.failureReason = SurfaceHitFailureReason::InvalidCamera;
+            } else {
+                result = MeshPicking::pick(m_mesh, rawRay);
+            }
         }
     }
 
@@ -577,10 +616,28 @@ void ModelViewerWidget::uploadPendingMesh()
     m_meshPendingUpload = false;
 }
 
+void ModelViewerWidget::updateModelMatrix()
+{
+    if (!m_hasMesh || m_mesh.boundingBox.isEmpty()) {
+        m_model.setToIdentity();
+        m_normalMatrix.setToIdentity();
+        return;
+    }
+
+    m_model = m_sceneAlignment.matrix(m_mesh.boundingBox.center());
+    m_normalMatrix = m_model.normalMatrix();
+}
+
+BoundingBox ModelViewerWidget::alignedMeshBounds() const
+{
+    return m_sceneAlignment.transformBounds(m_mesh.boundingBox);
+}
+
 std::optional<QString> ModelViewerWidget::markerIdAt(const QPointF& logicalPosition) const
 {
     return MarkerHitTesting::hitTest(m_markers,
                                      m_camera,
+                                     m_model,
                                      logicalPosition,
                                      size(),
                                      devicePixelRatioF(),

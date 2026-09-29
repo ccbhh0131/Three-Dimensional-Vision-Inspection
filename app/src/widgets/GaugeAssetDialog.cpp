@@ -1,10 +1,10 @@
 #include "widgets/GaugeAssetDialog.h"
+#include "widgets/ProductDialogStyle.h"
 
 #include "core/device/GaugeProfile.h"
 
 #include <QComboBox>
 #include <QDialogButtonBox>
-#include <QFormLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
@@ -61,12 +61,18 @@ GaugeAssetDialog::GaugeAssetDialog(const QString& title,
         }
     }
 
-    auto* form = new QFormLayout;
-    form->addRow(QStringLiteral("仪表名称:"), m_nameEdit);
-    form->addRow(QStringLiteral("量程下限:"), m_rangeMinEdit);
-    form->addRow(QStringLiteral("量程上限:"), m_rangeMaxEdit);
-    form->addRow(QStringLiteral("单位:"), m_unitEdit);
-    form->addRow(QStringLiteral("视觉 Profile:"), m_profileCombo);
+    auto* form = new QVBoxLayout;
+    const auto addField = [this, form](const QString& label, QWidget* field) {
+        auto* labelWidget = new QLabel(label, this);
+        labelWidget->setObjectName(QStringLiteral("productDialogFieldLabel"));
+        form->addWidget(labelWidget);
+        form->addWidget(field);
+    };
+    addField(QStringLiteral("仪表名称"), m_nameEdit);
+    addField(QStringLiteral("量程下限"), m_rangeMinEdit);
+    addField(QStringLiteral("量程上限"), m_rangeMaxEdit);
+    addField(QStringLiteral("单位"), m_unitEdit);
+    addField(QStringLiteral("视觉 Profile"), m_profileCombo);
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     buttons->button(QDialogButtonBox::Ok)->setObjectName(QStringLiteral("gaugeDialogOkButton"));
@@ -79,6 +85,10 @@ GaugeAssetDialog::GaugeAssetDialog(const QString& title,
     layout->addLayout(form);
     layout->addWidget(m_errorLabel);
     layout->addWidget(buttons);
+    applyProductDialogStyle(this);
+    styleProductButton(buttons->button(QDialogButtonBox::Ok), ProductButtonRole::Primary);
+    styleProductButton(buttons->button(QDialogButtonBox::Cancel),
+                       ProductButtonRole::Secondary);
     m_nameEdit->setFocus();
 }
 

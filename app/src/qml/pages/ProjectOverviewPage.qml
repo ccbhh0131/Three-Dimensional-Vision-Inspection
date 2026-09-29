@@ -58,8 +58,7 @@ Item {
                     PanelTitle { title: "项目状态"; detail: viewModel.projectName; theme: theme }
                     PropertyRow { label: "重建状态"; value: viewModel.reconstructionText; theme: theme }
                     PropertyRow { label: "当前阶段"; value: viewModel.reconstructionStageText; theme: theme }
-                    PropertyRow { label: "引擎"; value: viewModel.engineText; theme: theme }
-                    PropertyRow { label: "三维查看器"; value: viewModel.viewerText; theme: theme }
+                    PropertyRow { label: "三维模型"; value: viewModel.viewerText; theme: theme }
                     Row {
                         width: parent.width
                         spacing: 10

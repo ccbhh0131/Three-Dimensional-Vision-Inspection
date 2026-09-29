@@ -40,8 +40,11 @@ set(VISION3DINSPECTOR_SOURCES
     src/main.cpp
     src/app/MainWindow.cpp
     src/app/MainWindow.h
+    src/app/AppPreferences.cpp
+    src/app/AppPreferences.h
     src/app/AppShellViewModel.cpp
     src/app/AppShellViewModel.h
+    resources/branding.qrc
     src/qml/qml.qrc
     src/core/assets/AssetRecord.cpp
     src/core/assets/AssetRecord.h
@@ -86,6 +89,7 @@ set(VISION3DINSPECTOR_SOURCES
     src/core/mesh/PlyMeshLoader.h
     src/core/viewer/CameraController.cpp
     src/core/viewer/CameraController.h
+    src/core/viewer/SceneAlignmentTransform.h
     src/core/reconstruction/ReconstructionArtifactValidator.cpp
     src/core/reconstruction/ReconstructionArtifactValidator.h
     src/core/reconstruction/ReconstructionController.cpp
@@ -118,6 +122,8 @@ set(VISION3DINSPECTOR_SOURCES
     src/widgets/LogPanel.h
     src/widgets/ProjectPanel.cpp
     src/widgets/ProjectPanel.h
+    src/widgets/ProductDialogStyle.cpp
+    src/widgets/ProductDialogStyle.h
     src/widgets/ReconstructionPanel.cpp
     src/widgets/ReconstructionPanel.h
     src/widgets/VisualGaugeReadingDialog.cpp
@@ -138,6 +144,10 @@ list(REMOVE_ITEM VISION3DINSPECTOR_COMMON_SOURCES
 )
 
 add_executable(Vision3DInspector WIN32 ${VISION3DINSPECTOR_SOURCES})
+
+if(WIN32)
+    target_sources(Vision3DInspector PRIVATE resources/Vision3DInspector.rc)
+endif()
 
 target_compile_features(Vision3DInspector PRIVATE cxx_std_17)
 target_include_directories(Vision3DInspector PRIVATE

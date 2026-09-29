@@ -1,7 +1,7 @@
 #include "widgets/GaugeStatusRuleDialog.h"
+#include "widgets/ProductDialogStyle.h"
 
 #include <QDialogButtonBox>
-#include <QFormLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
@@ -50,11 +50,17 @@ GaugeStatusRuleDialog::GaugeStatusRuleDialog(
     setText(m_warningHighEdit, initial.has_value() ? initial->warningHigh : std::nullopt);
     setText(m_alarmHighEdit, initial.has_value() ? initial->alarmHigh : std::nullopt);
 
-    auto* form = new QFormLayout;
-    form->addRow(QStringLiteral("报警下限:"), m_alarmLowEdit);
-    form->addRow(QStringLiteral("警告下限:"), m_warningLowEdit);
-    form->addRow(QStringLiteral("警告上限:"), m_warningHighEdit);
-    form->addRow(QStringLiteral("报警上限:"), m_alarmHighEdit);
+    auto* form = new QVBoxLayout;
+    const auto addField = [this, form](const QString& label, QWidget* field) {
+        auto* labelWidget = new QLabel(label, this);
+        labelWidget->setObjectName(QStringLiteral("productDialogFieldLabel"));
+        form->addWidget(labelWidget);
+        form->addWidget(field);
+    };
+    addField(QStringLiteral("报警下限"), m_alarmLowEdit);
+    addField(QStringLiteral("警告下限"), m_warningLowEdit);
+    addField(QStringLiteral("警告上限"), m_warningHighEdit);
+    addField(QStringLiteral("报警上限"), m_alarmHighEdit);
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     buttons->button(QDialogButtonBox::Ok)
@@ -70,6 +76,10 @@ GaugeStatusRuleDialog::GaugeStatusRuleDialog(
     layout->addLayout(form);
     layout->addWidget(m_errorLabel);
     layout->addWidget(buttons);
+    applyProductDialogStyle(this);
+    styleProductButton(buttons->button(QDialogButtonBox::Ok), ProductButtonRole::Primary);
+    styleProductButton(buttons->button(QDialogButtonBox::Cancel),
+                       ProductButtonRole::Secondary);
     m_alarmLowEdit->setFocus();
 }
 

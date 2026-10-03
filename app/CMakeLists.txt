@@ -137,6 +137,7 @@ list(REMOVE_ITEM VISION3DINSPECTOR_COMMON_SOURCES
     src/main.cpp
 )
 
+add_subdirectory(src/core/ai)
 add_executable(Vision3DInspector WIN32 ${VISION3DINSPECTOR_SOURCES})
 
 target_compile_features(Vision3DInspector PRIVATE cxx_std_17)
@@ -145,6 +146,7 @@ target_include_directories(Vision3DInspector PRIVATE
     ${OpenCV_INCLUDE_DIRS}
 )
 target_link_libraries(Vision3DInspector PRIVATE
+    Vision3DAiJobClient
     Qt6::Core
     Qt6::Gui
     Qt6::Widgets

@@ -1,5 +1,6 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
+import QtQuick.Layouts 1.15
 import "components"
 
 Item {
@@ -70,15 +71,59 @@ Item {
                 width: parent.width
                 theme: theme
                 PanelTitle { title: "快捷操作"; theme: theme }
-                Row {
-                    spacing: 8
-                    AppButton { text: "视觉读数"; compact: true; enabled: viewModel.gaugeId.length > 0; theme: theme; onClicked: viewModel.requestVisualReading() }
-                    SecondaryButton { text: "手动更新"; compact: true; enabled: viewModel.gaugeId.length > 0; theme: theme; onClicked: viewModel.requestManualReading() }
-                }
-                Row {
-                    spacing: 8
-                    SecondaryButton { text: "查看历史"; compact: true; enabled: viewModel.gaugeId.length > 0; theme: theme; onClicked: viewModel.requestShowHistory() }
-                    GhostButton { text: "状态规则"; theme: theme; enabled: viewModel.gaugeId.length > 0; onClicked: viewModel.requestConfigureRule() }
+                GridLayout {
+                    width: parent.width
+                    columns: 2
+                    rowSpacing: 8
+                    columnSpacing: 8
+
+                    SecondaryButton {
+                        text: "视觉读数"
+                        compact: true
+                        enabled: viewModel.gaugeId.length > 0
+                        theme: theme
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: (parent.width - parent.columnSpacing) / 2
+                        Layout.preferredHeight: 32
+                        Layout.minimumHeight: 32
+                        Layout.maximumHeight: 32
+                        onClicked: viewModel.requestVisualReading()
+                    }
+                    SecondaryButton {
+                        text: "手动更新"
+                        compact: true
+                        enabled: viewModel.gaugeId.length > 0
+                        theme: theme
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: (parent.width - parent.columnSpacing) / 2
+                        Layout.preferredHeight: 32
+                        Layout.minimumHeight: 32
+                        Layout.maximumHeight: 32
+                        onClicked: viewModel.requestManualReading()
+                    }
+                    SecondaryButton {
+                        text: "查看历史"
+                        compact: true
+                        enabled: viewModel.gaugeId.length > 0
+                        theme: theme
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: (parent.width - parent.columnSpacing) / 2
+                        Layout.preferredHeight: 32
+                        Layout.minimumHeight: 32
+                        Layout.maximumHeight: 32
+                        onClicked: viewModel.requestShowHistory()
+                    }
+                    SecondaryButton {
+                        text: "状态规则"
+                        enabled: viewModel.gaugeId.length > 0
+                        theme: theme
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: (parent.width - parent.columnSpacing) / 2
+                        Layout.preferredHeight: 32
+                        Layout.minimumHeight: 32
+                        Layout.maximumHeight: 32
+                        onClicked: viewModel.requestConfigureRule()
+                    }
                 }
             }
 

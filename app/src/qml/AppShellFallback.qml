@@ -20,8 +20,15 @@ QtObject {
     property string reconstructionStageText: "—"
     property int reconstructionProgress: 0
     property string reconstructionArtifactText: "—"
+    property string reconstructionRegistrationText: "等待 COLMAP 相机位姿统计"
+    property string reconstructionErrorText: ""
+    property bool canResumeVideoDense: false
+    property var videoIngest: ({})
     property string engineText: "—"
     property string viewerText: "等待模型"
+    property bool alignmentEditing: false
+    property bool canAddMarker: false
+    property bool canDeleteMarker: false
 
     property string deviceName: "未选择设备"
     property string gaugeName: "未绑定仪表"
@@ -49,6 +56,18 @@ QtObject {
     property var historyRows: []
     property string visualImageSource: ""
     property string statusBarText: "就绪"
+    property string defaultProjectDirectory: ""
+    property string lastProjectDirectory: ""
+    property bool restoreLastProject: false
+    property bool rememberLastDirectory: true
+    property bool autoFit: true
+    property real orbitSensitivity: 1.0
+    property bool showMarkers: true
+    property real markerSize: 1.0
+    property int realtimePollIntervalMs: 500
+    property string productVersion: "Development"
+    property string buildType: "Release"
+    property string configDirectory: ""
 
     function selectPage(page) {
         root.currentPage = page;
@@ -56,9 +75,23 @@ QtObject {
     function requestCreateProject() {}
     function requestOpenProject() {}
     function requestImportImages() {}
+    function requestImportVideo() {}
+    function requestPreprocessVideo(targetFrames, autoContinue) {}
+    function requestStartPhotoReconstruction() {}
+    function requestStartVideoReconstruction() {}
+    function requestCancelVideoProcessing() {}
+    function requestViewVideoPreview() {}
+    function requestCancelReconstruction() {}
     function requestOpenViewer() {}
     function requestResetViewer() {}
     function requestCameraView(view) {}
+    function requestBeginSceneAlignment() {}
+    function requestSceneAlignmentRotation(axis, degrees) {}
+    function requestResetSceneAlignment() {}
+    function requestCancelSceneAlignment() {}
+    function requestSaveSceneAlignment() {}
+    function requestAddMarker() {}
+    function requestDeleteMarker() {}
     function requestVisualReading() {}
     function requestManualReading() {}
     function requestShowHistory() {}
@@ -69,5 +102,17 @@ QtObject {
     function requestStopRealtime() {}
     function requestRecordRealtime() {}
     function requestSettings() {}
+    function requestSelectDefaultProjectDirectory() {}
+    function requestOpenThirdPartyLicenses() {}
+    function requestResetPreferences() {}
+    function setRestoreLastProject(enabled) { root.restoreLastProject = enabled; }
+    function setRememberLastDirectory(enabled) { root.rememberLastDirectory = enabled; }
+    function setAutoFit(enabled) { root.autoFit = enabled; }
+    function setOrbitSensitivity(value) { root.orbitSensitivity = value; }
+    function setShowMarkers(enabled) { root.showMarkers = enabled; }
+    function setMarkerSize(value) { root.markerSize = value; }
+    function setRealtimePollIntervalMs(value) { root.realtimePollIntervalMs = value; }
+    function setDefaultProjectDirectory(value) { root.defaultProjectDirectory = value; }
+    function requestFitViewer() {}
     function refresh() {}
 }

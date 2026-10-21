@@ -38,6 +38,11 @@ public:
                        ReconstructionJobPaths* paths,
                        QString* error = nullptr);
 
+    static bool openExisting(const QString& projectDirectory,
+                             const QString& taskId,
+                             ReconstructionJobPaths* paths,
+                             QString* error = nullptr);
+
     static bool stageInputs(const ReconstructionJobPaths& paths,
                             const QList<AssetRecord>& assets,
                             QList<ReconstructionInputMapping>* mappings,

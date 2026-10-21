@@ -23,8 +23,8 @@ ToolButton {
     }
     background: Rectangle {
         radius: theme.radiusInput
-        color: root.pressed ? theme.border : (root.hovered ? theme.surfaceMuted : "transparent")
-        border.color: root.activeFocus ? theme.border : "transparent"
+        color: root.pressed ? theme.border : (root.hovered ? theme.surfaceHover : "transparent")
+        border.color: root.activeFocus ? theme.borderStrong : "transparent"
         border.width: root.activeFocus ? 1 : 0
     }
     ToolTip.visible: root.hovered && root.tooltip.length > 0

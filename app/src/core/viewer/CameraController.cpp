@@ -129,6 +129,15 @@ void CameraController::setViewportSize(int width, int height)
     }
 }
 
+void CameraController::setOrbitSensitivity(float sensitivity)
+{
+    if (!isFiniteScalar(sensitivity)) {
+        m_orbitSensitivity = 1.0f;
+        return;
+    }
+    m_orbitSensitivity = std::clamp(sensitivity, 0.5f, 2.0f);
+}
+
 void CameraController::setFrontView()
 {
     setPresetView(0.0f, 0.0f);
@@ -197,8 +206,9 @@ void CameraController::orbit(float deltaX, float deltaY)
         return;
     }
 
-    m_yawRadians += deltaX * kOrbitRadiansPerLogicalPixel;
-    m_pitchRadians -= deltaY * kOrbitRadiansPerLogicalPixel;
+    const float scale = kOrbitRadiansPerLogicalPixel * m_orbitSensitivity;
+    m_yawRadians += deltaX * scale;
+    m_pitchRadians -= deltaY * scale;
     if (!isFiniteScalar(m_yawRadians) || !isFiniteScalar(m_pitchRadians)) {
         m_yawRadians = 0.0f;
         m_pitchRadians = 0.0f;
@@ -410,6 +420,11 @@ float CameraController::maximumDistance() const
 float CameraController::pitchLimitRadians() const
 {
     return kPitchLimitDegrees * kPi / 180.0f;
+}
+
+float CameraController::orbitSensitivity() const
+{
+    return m_orbitSensitivity;
 }
 
 QMatrix4x4 CameraController::viewMatrix() const

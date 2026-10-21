@@ -20,7 +20,7 @@ Button {
     contentItem: Text {
         id: label
         text: root.busy ? "处理中…" : root.text
-        color: theme.surface
+        color: root.enabled ? theme.primaryForeground : theme.disabledText
         font.family: theme.cjkFontFamily
         font.pixelSize: root.compact ? 12 : 13
         font.weight: Font.DemiBold
@@ -30,10 +30,10 @@ Button {
     }
     background: Rectangle {
         radius: theme.radiusInput
-        color: !root.enabled ? theme.surfaceMuted : (root.pressed ? root.accentPressed : (root.hovered ? root.accentHover : root.accent))
-        border.color: root.activeFocus ? theme.primaryHover : color
+        color: !root.enabled ? theme.disabledBackground : (root.pressed ? root.accentPressed : (root.hovered ? root.accentHover : root.accent))
+        border.color: !root.enabled ? theme.disabledBorder : (root.activeFocus ? theme.primaryHover : color)
         border.width: root.activeFocus ? 2 : 1
-        opacity: root.enabled ? 1.0 : 0.55
+        opacity: 1.0
         Behavior on color { ColorAnimation { duration: 140 } }
     }
 }

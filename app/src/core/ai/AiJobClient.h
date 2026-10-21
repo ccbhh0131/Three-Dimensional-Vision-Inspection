@@ -18,11 +18,14 @@ public:
         qint64 fileSize = 0;
         QString sha256;
         QString message;
+        QString operation; // Optional v1 refinement metadata.
+        bool geometryImproved = false;
     };
 
     // Both roots must be existing, absolute and disjoint directories.
     AiJobClient(const QString &clientToAi, const QString &aiToClient);
-    Submission submit(const QString &inputModel, QString &error) const;
+    Submission submit(const QString &inputModel, QString &error,
+                      const QString &type = QStringLiteral("mesh-copy")) const;
     Result checkResult(const QString &jobId) const;
 
 private:

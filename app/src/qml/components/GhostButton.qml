@@ -13,7 +13,7 @@ Button {
     contentItem: Text {
         id: label
         text: root.text
-        color: theme.textSecondary
+        color: root.enabled ? theme.textSecondary : theme.disabledText
         font.family: theme.cjkFontFamily
         font.pixelSize: 12
         horizontalAlignment: Text.AlignHCenter
@@ -22,9 +22,9 @@ Button {
     }
     background: Rectangle {
         radius: theme.radiusInput
-        color: !root.enabled ? theme.surfaceMuted : (root.pressed ? theme.surfaceMuted : (root.hovered ? theme.surfaceMuted : "transparent"))
-        border.color: root.activeFocus ? theme.border : "transparent"
+        color: !root.enabled ? theme.disabledBackground : (root.pressed ? theme.surfaceHover : (root.hovered ? theme.surfaceHover : "transparent"))
+        border.color: !root.enabled ? theme.disabledBorder : (root.activeFocus ? theme.borderStrong : "transparent")
         border.width: root.activeFocus ? 1 : 0
-        opacity: root.enabled ? 1.0 : 0.55
+        opacity: 1.0
     }
 }

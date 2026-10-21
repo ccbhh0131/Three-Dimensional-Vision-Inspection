@@ -26,5 +26,5 @@ Rectangle {
     Component { id: realtimePage; RealtimePage { viewModel: root.viewModel } }
     Component { id: historyPage; HistoryPage { viewModel: root.viewModel } }
     Component { id: reconstructionPage; ReconstructionPage { viewModel: root.viewModel } }
-    Component { id: settingsPage; EmptyState { title: "设置"; detail: "技术设置仍由现有 QWidget 对话框承载。"; theme: theme; actionText: "打开技术设置"; onActionClicked: root.viewModel.requestSettings() } }
+    Component { id: settingsPage; SettingsPage { viewModel: root.viewModel } }
 }

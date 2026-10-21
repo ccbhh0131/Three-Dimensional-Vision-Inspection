@@ -84,9 +84,14 @@ AiJobClient::AiJobClient(const QString &clientToAi, const QString &aiToClient)
         m_configurationError = "Transport directories must be disjoint";
 }
 
-AiJobClient::Submission AiJobClient::submit(const QString &inputModel, QString &error) const
+AiJobClient::Submission AiJobClient::submit(const QString &inputModel, QString &error,
+                                           const QString &type) const
 {
     error.clear();
+    if (type != "mesh-copy" && type != "mesh-refinement") {
+        error = "Unsupported task type";
+        return {};
+    }
     if (!m_configurationError.isEmpty()) {
         error = m_configurationError;
         return {};
@@ -126,7 +131,7 @@ AiJobClient::Submission AiJobClient::submit(const QString &inputModel, QString &
         return {};
     }
     const QJsonObject request{
-        {"protocolVersion", 1}, {"jobId", jobId}, {"type", "mesh-copy"},
+        {"protocolVersion", 1}, {"jobId", jobId}, {"type", type},
         {"meshFile", "final-mesh.ply"}, {"meshSize", size}, {"sha256", sha256}
     };
     if (!publish(QDir(jobDir).filePath("request.json"), QJsonDocument(request).toJson())
@@ -195,5 +200,7 @@ AiJobClient::Result AiJobClient::checkResult(const QString &jobId) const
     result.filePath = path;
     result.fileSize = file.size();
     result.sha256 = actualHash;
+    result.operation = response.value("operation").toString();
+    result.geometryImproved = response.value("geometryImproved").toBool();
     return result;
 }

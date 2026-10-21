@@ -6,6 +6,7 @@
 #include "core/reconstruction/ReconstructionArtifactValidator.h"
 #include "core/reconstruction/ReconstructionTask.h"
 #include "core/reconstruction/ReconstructionWorkspace.h"
+#include "core/video/VideoInfo.h"
 
 #include <QElapsedTimer>
 #include <QFile>
@@ -24,7 +25,11 @@ public:
                                       QObject* parent = nullptr);
 
     bool start(const QString& backendRoot, QString* error = nullptr);
+    bool start(const ReconstructionInput& input,
+               const QString& backendRoot,
+               QString* error = nullptr);
     void cancel();
+    bool resumeVideoDense(const QString& backendRoot, QString* error = nullptr);
     bool isRunning() const;
     const ReconstructionTask& currentTask() const;
     const ReconstructionJobPaths& jobPaths() const;
@@ -55,6 +60,8 @@ private:
         None,
         Probe,
         Stage,
+        VideoCrossMatching,
+        VideoTransitiveMatching,
     };
 
     bool validateStartPreconditions(const QString& backendRoot,
@@ -62,6 +69,8 @@ private:
                                    QString* error) const;
     void beginProbe();
     void beginStage(int index);
+    void beginVideoCrossMatching();
+    void beginVideoTransitiveMatching();
     ProcessCommand commandForStage(ReconstructionStage stage) const;
     ProcessCommand modelOptimizationCommand() const;
     void openLog(const QString& fileName, const ProcessCommand& command);
@@ -86,8 +95,10 @@ private:
     QList<AssetRecord> m_assets;
     QString m_backendRoot;
     ReconstructionConfig m_config;
+    ReconstructionInput m_reconstructionInput;
     ProcessPurpose m_processPurpose = ProcessPurpose::None;
     int m_stageIndex = -1;
+    int m_resumeStageIndex = 0;
     bool m_cancelRequested = false;
     QString m_processError;
     QString m_probeStdout;

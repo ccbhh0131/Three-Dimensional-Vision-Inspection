@@ -227,6 +227,19 @@ void MarkerRenderer::setMarkers(const QVector<DeviceMarkerView>& markers)
     m_markersPendingUpload = true;
 }
 
+void MarkerRenderer::setPointSizeScale(float scale)
+{
+    if (!std::isfinite(scale)) {
+        scale = 1.0f;
+    }
+    const float normalized = std::clamp(scale, 0.75f, 1.5f);
+    if (std::abs(m_pointSizeScale - normalized) <= 1.0e-6f) {
+        return;
+    }
+    m_pointSizeScale = normalized;
+    m_markersPendingUpload = true;
+}
+
 bool MarkerRenderer::clearMarkers()
 {
     m_markers.clear();
@@ -279,7 +292,7 @@ bool MarkerRenderer::uploadMarkers()
             gpuMarker.red = std::min(1.0f, gpuMarker.red + 0.25f);
             gpuMarker.green = std::min(1.0f, gpuMarker.green + 0.25f);
             gpuMarker.blue = std::min(1.0f, gpuMarker.blue + 0.25f);
-            gpuMarker.pointSize = 20.0f;
+            gpuMarker.pointSize = 20.0f * m_pointSizeScale;
         }
         gpuMarkers.push_back(gpuMarker);
     }
@@ -363,7 +376,7 @@ bool MarkerRenderer::draw(const QMatrix4x4& model,
                                     1,
                                     GL_FALSE,
                                     projection.constData());
-    m_functions->glUniform1f(m_pointSizeLocation, 14.0f);
+    m_functions->glUniform1f(m_pointSizeLocation, 14.0f * m_pointSizeScale);
     m_functions->glEnable(GL_PROGRAM_POINT_SIZE);
     m_functions->glEnable(GL_DEPTH_TEST);
     m_functions->glDepthFunc(GL_LEQUAL);

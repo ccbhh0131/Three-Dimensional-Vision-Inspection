@@ -155,7 +155,7 @@ ProcessCommand ColmapBackend::featureExtractionCommand(const QString& backendRoo
         {QStringLiteral("--database_path"),
          QStringLiteral("database.db"),
          QStringLiteral("--image_path"),
-         QStringLiteral("input"),
+         config.imageDirectory,
          QStringLiteral("--ImageReader.camera_model"),
          QStringLiteral("SIMPLE_RADIAL"),
          QStringLiteral("--ImageReader.single_camera"),
@@ -171,20 +171,36 @@ ProcessCommand ColmapBackend::featureMatchingCommand(const QString& backendRoot,
                                                      const QString& jobRoot,
                                                      const ReconstructionConfig& config) const
 {
+    QStringList arguments{QStringLiteral("--database_path"),
+                          QStringLiteral("database.db")};
+    if (config.useSequentialMatcher && !config.useTransitiveMatcher) {
+        arguments << QStringLiteral("--SequentialMatching.overlap")
+                  << QString::number(qMax(1, config.sequentialMatcherOverlap))
+                  << QStringLiteral("--SequentialMatching.quadratic_overlap")
+                  << (config.sequentialQuadraticOverlap ? QStringLiteral("1") : QStringLiteral("0"));
+    }
+    if (config.guidedMatching) {
+        arguments << QStringLiteral("--SiftMatching.guided_matching") << QStringLiteral("1");
+    }
+    if (config.useTransitiveMatcher) {
+        arguments << QStringLiteral("--TransitiveMatching.num_iterations") << QStringLiteral("2");
+    }
+    arguments << QStringLiteral("--SiftMatching.use_gpu")
+              << (config.useGpuMatching ? QStringLiteral("1") : QStringLiteral("0"))
+              << QStringLiteral("--SiftMatching.gpu_index")
+              << QString::number(config.gpuIndex);
     return makeCommand(backendRoot,
                        jobRoot,
-                       QStringLiteral("exhaustive_matcher"),
-                       {QStringLiteral("--database_path"),
-                        QStringLiteral("database.db"),
-                        QStringLiteral("--SiftMatching.use_gpu"),
-                        config.useGpuMatching ? QStringLiteral("1") : QStringLiteral("0"),
-                        QStringLiteral("--SiftMatching.gpu_index"),
-                        QString::number(config.gpuIndex)},
+                       config.useTransitiveMatcher ? QStringLiteral("transitive_matcher")
+                       : config.useSequentialMatcher ? QStringLiteral("sequential_matcher")
+                                                   : QStringLiteral("exhaustive_matcher"),
+                       arguments,
                        QStringLiteral("A2 Feature Matching"));
 }
 
 ProcessCommand ColmapBackend::sparseMappingCommand(const QString& backendRoot,
-                                                   const QString& jobRoot) const
+                                                   const QString& jobRoot,
+                                                   const ReconstructionConfig& config) const
 {
     return makeCommand(backendRoot,
                        jobRoot,
@@ -192,7 +208,7 @@ ProcessCommand ColmapBackend::sparseMappingCommand(const QString& backendRoot,
                        {QStringLiteral("--database_path"),
                         QStringLiteral("database.db"),
                         QStringLiteral("--image_path"),
-                        QStringLiteral("input"),
+                        config.imageDirectory,
                         QStringLiteral("--output_path"),
                         QStringLiteral("sparse")},
                        QStringLiteral("A3 Sparse Mapping"));
@@ -200,13 +216,14 @@ ProcessCommand ColmapBackend::sparseMappingCommand(const QString& backendRoot,
 
 ProcessCommand ColmapBackend::undistortionCommand(const QString& backendRoot,
                                                   const QString& jobRoot,
-                                                  const QString& primaryModelRelativePath) const
+                                                  const QString& primaryModelRelativePath,
+                                                  const QString& imageDirectory) const
 {
     return makeCommand(backendRoot,
                        jobRoot,
                        QStringLiteral("image_undistorter"),
                        {QStringLiteral("--image_path"),
-                        QStringLiteral("input"),
+                        imageDirectory,
                         QStringLiteral("--input_path"),
                         QDir::fromNativeSeparators(primaryModelRelativePath),
                         QStringLiteral("--output_path"),

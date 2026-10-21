@@ -338,6 +338,27 @@ bool ProjectManager::saveProject(QString* error)
     return m_manifest->save(QDir(m_projectDirectory).filePath(QStringLiteral("project.json")), error);
 }
 
+bool ProjectManager::setSceneAlignment(const SceneAlignmentTransform& alignment,
+                                       QString* error)
+{
+    if (!m_manifest.has_value() || m_projectDirectory.isEmpty()) {
+        if (error != nullptr) {
+            *error = QStringLiteral("当前没有打开的项目，无法保存模型方向。");
+        }
+        return false;
+    }
+    if (!alignment.isValid()) {
+        if (error != nullptr) {
+            *error = QStringLiteral("模型方向校准不是有效的旋转。");
+        }
+        return false;
+    }
+
+    ProjectManifest candidate = *m_manifest;
+    candidate.setSceneAlignment(alignment);
+    return persistManifest(candidate, error);
+}
+
 QList<AssetImportResult> ProjectManager::importImages(const QStringList& sourceFiles,
                                                       QString* error)
 {

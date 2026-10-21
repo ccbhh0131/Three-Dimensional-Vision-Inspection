@@ -1,9 +1,11 @@
 #include "app/AppShellViewModel.h"
 
+#include "app/AppPreferences.h"
 #include "core/device/GaugeStatus.h"
 #include "core/project/ProjectManager.h"
 #include "core/realtime/RealtimeMonitoringController.h"
 
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
@@ -123,10 +125,12 @@ QString sourceDisplay(GaugeDataSource source)
 AppShellViewModel::AppShellViewModel(
     ProjectManager* projectManager,
     realtime::RealtimeMonitoringController* realtimeController,
+    AppPreferences* preferences,
     QObject* parent)
     : QObject(parent)
     , m_projectManager(projectManager)
     , m_realtimeController(realtimeController)
+    , m_preferences(preferences)
 {
     if (m_projectManager != nullptr) {
         connect(m_projectManager,
@@ -161,8 +165,18 @@ QString AppShellViewModel::reconstructionText() const { return m_reconstructionT
 QString AppShellViewModel::reconstructionStageText() const { return m_reconstructionStageText; }
 int AppShellViewModel::reconstructionProgress() const { return m_reconstructionProgress; }
 QString AppShellViewModel::reconstructionArtifactText() const { return m_reconstructionArtifactText; }
+QString AppShellViewModel::reconstructionRegistrationText() const
+{
+    return m_reconstructionRegistrationText;
+}
+
+QString AppShellViewModel::reconstructionErrorText() const { return m_reconstructionErrorText; }
+bool AppShellViewModel::canResumeVideoDense() const { return m_canResumeVideoDense; }
 QString AppShellViewModel::engineText() const { return m_engineText; }
 QString AppShellViewModel::viewerText() const { return m_viewerText; }
+bool AppShellViewModel::alignmentEditing() const { return m_alignmentEditing; }
+bool AppShellViewModel::canAddMarker() const { return m_canAddMarker; }
+bool AppShellViewModel::canDeleteMarker() const { return m_canDeleteMarker; }
 
 QString AppShellViewModel::deviceName() const { return m_deviceName; }
 QString AppShellViewModel::gaugeName() const { return m_gaugeName; }
@@ -190,6 +204,72 @@ bool AppShellViewModel::realtimeRunning() const { return m_realtimeRunning; }
 QVariantList AppShellViewModel::historyRows() const { return m_historyRows; }
 QString AppShellViewModel::visualImageSource() const { return m_visualImageSource; }
 QString AppShellViewModel::statusBarText() const { return m_statusBarText; }
+QVariantMap AppShellViewModel::videoIngest() const { return m_videoIngest; }
+
+QString AppShellViewModel::defaultProjectDirectory() const
+{
+    return m_preferences == nullptr ? QString() : m_preferences->defaultProjectDirectory();
+}
+
+QString AppShellViewModel::lastProjectDirectory() const
+{
+    return m_preferences == nullptr ? QString() : m_preferences->lastProjectDirectory();
+}
+
+bool AppShellViewModel::restoreLastProject() const
+{
+    return m_preferences != nullptr && m_preferences->restoreLastProject();
+}
+
+bool AppShellViewModel::rememberLastDirectory() const
+{
+    return m_preferences == nullptr || m_preferences->rememberLastDirectory();
+}
+
+bool AppShellViewModel::autoFit() const
+{
+    return m_preferences == nullptr || m_preferences->autoFit();
+}
+
+double AppShellViewModel::orbitSensitivity() const
+{
+    return m_preferences == nullptr ? 1.0 : m_preferences->orbitSensitivity();
+}
+
+bool AppShellViewModel::showMarkers() const
+{
+    return m_preferences == nullptr || m_preferences->showMarkers();
+}
+
+double AppShellViewModel::markerSize() const
+{
+    return m_preferences == nullptr ? 1.0 : m_preferences->markerSize();
+}
+
+int AppShellViewModel::realtimePollIntervalMs() const
+{
+    return m_preferences == nullptr ? 500 : m_preferences->realtimePollIntervalMs();
+}
+
+QString AppShellViewModel::productVersion() const
+{
+    const QString version = QCoreApplication::applicationVersion().trimmed();
+    return version.isEmpty() ? QStringLiteral("Development") : version;
+}
+
+QString AppShellViewModel::buildType() const
+{
+#ifdef QT_DEBUG
+    return QStringLiteral("Debug");
+#else
+    return QStringLiteral("Release");
+#endif
+}
+
+QString AppShellViewModel::configDirectory() const
+{
+    return m_preferences == nullptr ? QString() : AppPreferences::configDirectory();
+}
 
 void AppShellViewModel::selectPage(const QString& page)
 {
@@ -225,6 +305,31 @@ void AppShellViewModel::selectPage(const QString& page)
 void AppShellViewModel::requestCreateProject() { emit createProjectRequested(); }
 void AppShellViewModel::requestOpenProject() { emit openProjectRequested(); }
 void AppShellViewModel::requestImportImages() { emit importImagesRequested(); }
+void AppShellViewModel::requestImportVideo() { emit importVideoRequested(); }
+void AppShellViewModel::requestPreprocessVideo(int targetFrames, bool autoContinue)
+{
+    emit preprocessVideoRequested(targetFrames, autoContinue);
+}
+void AppShellViewModel::requestStartPhotoReconstruction()
+{
+    emit startPhotoReconstructionRequested();
+}
+void AppShellViewModel::requestStartVideoReconstruction()
+{
+    emit startVideoReconstructionRequested();
+}
+void AppShellViewModel::requestCancelVideoProcessing()
+{
+    emit cancelVideoProcessingRequested();
+}
+void AppShellViewModel::requestViewVideoPreview()
+{
+    emit viewVideoPreviewRequested();
+}
+void AppShellViewModel::requestCancelReconstruction()
+{
+    emit cancelReconstructionRequested();
+}
 void AppShellViewModel::requestOpenViewer()
 {
     if (!m_selectedMarkerId.isEmpty()) {
@@ -232,10 +337,43 @@ void AppShellViewModel::requestOpenViewer()
     }
     emit openViewerRequested();
 }
+void AppShellViewModel::requestFitViewer() { emit fitViewerRequested(); }
 void AppShellViewModel::requestResetViewer() { emit resetViewerRequested(); }
 void AppShellViewModel::requestCameraView(const QString& view)
 {
     emit cameraViewRequested(view);
+}
+void AppShellViewModel::requestBeginSceneAlignment()
+{
+    emit beginSceneAlignmentRequested();
+}
+void AppShellViewModel::requestSceneAlignmentRotation(const QString& axis, double degrees)
+{
+    emit sceneAlignmentRotationRequested(axis, degrees);
+}
+void AppShellViewModel::requestResetSceneAlignment()
+{
+    emit resetSceneAlignmentRequested();
+}
+void AppShellViewModel::requestCancelSceneAlignment()
+{
+    emit cancelSceneAlignmentRequested();
+}
+void AppShellViewModel::requestSaveSceneAlignment()
+{
+    emit saveSceneAlignmentRequested();
+}
+void AppShellViewModel::requestAddMarker()
+{
+    if (m_canAddMarker) {
+        emit addMarkerRequested();
+    }
+}
+void AppShellViewModel::requestDeleteMarker()
+{
+    if (m_canDeleteMarker) {
+        emit deleteMarkerRequested();
+    }
 }
 void AppShellViewModel::requestVisualReading()
 {
@@ -265,6 +403,91 @@ void AppShellViewModel::requestStartRealtime()
 void AppShellViewModel::requestStopRealtime() { emit stopRealtimeRequested(); }
 void AppShellViewModel::requestRecordRealtime() { emit recordRealtimeRequested(); }
 void AppShellViewModel::requestSettings() { emit settingsRequested(); }
+void AppShellViewModel::requestSelectDefaultProjectDirectory()
+{
+    emit selectDefaultProjectDirectoryRequested();
+}
+void AppShellViewModel::requestOpenThirdPartyLicenses()
+{
+    emit openThirdPartyLicensesRequested();
+}
+void AppShellViewModel::requestResetPreferences()
+{
+    if (m_preferences == nullptr) {
+        return;
+    }
+    m_preferences->reset();
+    emit viewerPreferencesChanged();
+    refresh();
+}
+void AppShellViewModel::setRestoreLastProject(bool enabled)
+{
+    if (m_preferences == nullptr) {
+        return;
+    }
+    m_preferences->setRestoreLastProject(enabled);
+    refresh();
+}
+void AppShellViewModel::setRememberLastDirectory(bool enabled)
+{
+    if (m_preferences == nullptr) {
+        return;
+    }
+    m_preferences->setRememberLastDirectory(enabled);
+    refresh();
+}
+void AppShellViewModel::setAutoFit(bool enabled)
+{
+    if (m_preferences == nullptr) {
+        return;
+    }
+    m_preferences->setAutoFit(enabled);
+    emit viewerPreferencesChanged();
+    refresh();
+}
+void AppShellViewModel::setOrbitSensitivity(double sensitivity)
+{
+    if (m_preferences == nullptr) {
+        return;
+    }
+    m_preferences->setOrbitSensitivity(sensitivity);
+    emit viewerPreferencesChanged();
+    refresh();
+}
+void AppShellViewModel::setShowMarkers(bool enabled)
+{
+    if (m_preferences == nullptr) {
+        return;
+    }
+    m_preferences->setShowMarkers(enabled);
+    emit viewerPreferencesChanged();
+    refresh();
+}
+void AppShellViewModel::setMarkerSize(double scale)
+{
+    if (m_preferences == nullptr) {
+        return;
+    }
+    m_preferences->setMarkerSize(scale);
+    emit viewerPreferencesChanged();
+    refresh();
+}
+void AppShellViewModel::setRealtimePollIntervalMs(int intervalMs)
+{
+    if (m_preferences == nullptr) {
+        return;
+    }
+    m_preferences->setRealtimePollIntervalMs(intervalMs);
+    refresh();
+}
+void AppShellViewModel::setDefaultProjectDirectory(const QString& directory)
+{
+    if (m_preferences == nullptr) {
+        return;
+    }
+    m_preferences->setDefaultProjectDirectory(directory);
+    refresh();
+}
 
 void AppShellViewModel::setSelectedMarkerId(const QString& markerId)
 {
@@ -275,6 +498,36 @@ void AppShellViewModel::setSelectedMarkerId(const QString& markerId)
     }
     m_selectedMarkerId = normalized;
     refresh();
+}
+
+void AppShellViewModel::setAlignmentEditing(bool editing)
+{
+    if (m_alignmentEditing == editing) {
+        emit dataChanged();
+        return;
+    }
+    m_alignmentEditing = editing;
+    emit dataChanged();
+}
+
+void AppShellViewModel::setCanAddMarker(bool canAddMarker)
+{
+    if (m_canAddMarker == canAddMarker) {
+        emit dataChanged();
+        return;
+    }
+    m_canAddMarker = canAddMarker;
+    emit dataChanged();
+}
+
+void AppShellViewModel::setCanDeleteMarker(bool canDeleteMarker)
+{
+    if (m_canDeleteMarker == canDeleteMarker) {
+        emit dataChanged();
+        return;
+    }
+    m_canDeleteMarker = canDeleteMarker;
+    emit dataChanged();
 }
 
 void AppShellViewModel::refresh()
@@ -291,8 +544,13 @@ void AppShellViewModel::refresh()
     m_reconstructionStageText = QStringLiteral("等待任务");
     m_reconstructionProgress = 0;
     m_reconstructionArtifactText = QStringLiteral("暂无有效网格结果");
+    m_reconstructionRegistrationText = QStringLiteral("等待 COLMAP 相机位姿统计");
+    m_reconstructionErrorText.clear();
+    m_canResumeVideoDense = false;
     m_engineText = QStringLiteral("未检测");
     m_viewerText = QStringLiteral("未加载模型");
+    m_canAddMarker = false;
+    m_canDeleteMarker = false;
     m_deviceName = QStringLiteral("未选择设备");
     m_gaugeName = QStringLiteral("未绑定仪表");
     m_gaugeId.clear();
@@ -312,7 +570,7 @@ void AppShellViewModel::refresh()
     m_realtimeConnectionText = QStringLiteral("未连接");
     m_realtimeHostText = QStringLiteral("—");
     m_realtimeRegisterText = QStringLiteral("—");
-    m_realtimePollingText = QStringLiteral("500 ms");
+    m_realtimePollingText = QStringLiteral("%1 ms").arg(realtimePollIntervalMs());
     m_realtimeRunning = false;
     m_historyRows.clear();
     m_visualImageSource.clear();
@@ -351,6 +609,10 @@ void AppShellViewModel::refresh()
 
     const std::optional<ReconstructionTask> task = m_projectManager->latestReconstructionTask();
     if (task.has_value()) {
+        m_reconstructionErrorText = task->errorMessage;
+        m_canResumeVideoDense = task->inputType == QStringLiteral("video")
+            && task->stage == ReconstructionStage::DenseStereo
+            && (task->state == ReconstructionState::Cancelled || task->state == ReconstructionState::Interrupted);
         m_reconstructionText = stateDisplay(reconstructionStateToString(task->state));
         m_reconstructionStageText = stageDisplay(reconstructionStageToString(task->stage));
         if (task->state == ReconstructionState::Completed) {
@@ -364,6 +626,14 @@ void AppShellViewModel::refresh()
         m_reconstructionArtifactText = task->meshRelativePath.isEmpty()
             ? QStringLiteral("任务已记录，暂无网格路径")
             : task->meshRelativePath;
+        m_reconstructionRegistrationText = QStringLiteral("已恢复相机位姿：%1 / %2（%3%）")
+                                               .arg(task->registeredImageCount)
+                                               .arg(task->inputImageCount)
+                                               .arg(task->registrationRatio * 100.0, 0, 'f', 2);
+        if (task->sparseModelCount > 1) {
+            m_reconstructionRegistrationText += QStringLiteral(" · %1 个不连通片段")
+                                                    .arg(task->sparseModelCount);
+        }
     }
     if (m_projectManager->latestPoissonMeshArtifact().isValid()) {
         m_viewerText = QStringLiteral("网格已就绪");
@@ -489,6 +759,15 @@ void AppShellViewModel::refresh()
     } else {
         m_statusBarText = QStringLiteral("就绪 · %1").arg(m_projectName);
     }
+    emit dataChanged();
+}
+
+void AppShellViewModel::setVideoIngest(const QVariantMap& state)
+{
+    if (m_videoIngest == state) {
+        return;
+    }
+    m_videoIngest = state;
     emit dataChanged();
 }
 

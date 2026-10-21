@@ -1,5 +1,6 @@
 #pragma once
 
+#include "app/AppPreferences.h"
 #include "backend/ColmapBackend.h"
 #include "core/device/DeviceMarker.h"
 #include "core/device/GaugeAsset.h"
@@ -7,6 +8,8 @@
 #include "core/process/ProcessRunner.h"
 #include "core/project/ProjectManager.h"
 #include "core/reconstruction/ReconstructionController.h"
+#include "core/video/VideoReconstructionController.h"
+#include "core/viewer/SceneAlignmentTransform.h"
 
 #include <QMainWindow>
 
@@ -44,6 +47,11 @@ private slots:
     void openProject();
     void closeProject();
     void importImages();
+    void importVideo();
+    void preprocessVideo(int targetFrames, bool autoContinue);
+    void startVideoReconstruction();
+    void cancelVideoProcessing();
+    void viewVideoPreview();
     void removeSelectedImage();
     void openDeveloperSettings();
     void probeBackend();
@@ -58,8 +66,15 @@ private slots:
     void onReconstructionLog(const QString& text, bool isError);
     void onReconstructionFinished(bool success);
     void open3DModel();
+    void fitViewer();
     void resetViewer();
     void setCameraView(const QString& view);
+    void beginSceneAlignment();
+    void rotateSceneAlignment(const QString& axis, double degrees);
+    void resetSceneAlignment();
+    void cancelSceneAlignment();
+    void saveSceneAlignment();
+    void setSceneAlignmentPanelVisible(bool visible);
     void onSurfacePicked(const SurfaceHit& hit);
     void onSurfaceMissed();
     void onMarkerSelected(const QString& markerId);
@@ -76,6 +91,8 @@ private slots:
     void stopMockSensor();
     void recordCurrentSensorSample();
     void refreshProjectView();
+    void selectDefaultProjectDirectory();
+    void showThirdPartyLicenses();
 
 private:
     void createActions();
@@ -83,6 +100,7 @@ private:
     void finishBackendProbe(const BackendProbeResult& result);
     void updateAssetActions();
     void updateReconstructionView();
+    void updateVideoView();
     void clearViewerAssociation();
     void clearPendingSurfaceHit();
     void refreshMarkerPresentation();
@@ -95,9 +113,11 @@ private:
     void syncModernPage();
     void ensureModernSelection(const QString& markerId);
     void scheduleViewerFit();
+    void applyViewerPreferences();
 
     ProjectManager m_projectManager;
     ProcessRunner m_processRunner;
+    AppPreferences m_appPreferences;
     ColmapBackend m_colmapBackend;
     ProjectPanel* m_projectPanel;
     ImageBrowserPanel* m_imageBrowserPanel;
@@ -109,6 +129,7 @@ private:
     LogPanel* m_logPanel;
     QLabel* m_statusLabel;
     ReconstructionController* m_reconstructionController;
+    VideoReconstructionController* m_videoReconstructionController;
     realtime::RealtimeMonitoringController* m_realtimeMonitoringController;
     AppShellViewModel* m_appShellViewModel;
     QWidget* m_legacyWidgetSurface = nullptr;
@@ -132,7 +153,13 @@ private:
     bool m_probeFailed = false;
     bool m_probeUsingInternalRoot = false;
     bool m_probeFallbackAllowed = false;
+    bool m_autoContinueVideo = false;
+    bool m_autoContinueVideoStarted = false;
+    QString m_videoProjectDirectory;
     bool m_viewerMeshLoaded = false;
+    bool m_sceneAlignmentEditing = false;
+    SceneAlignmentTransform m_originalSceneAlignment;
+    SceneAlignmentTransform m_editSceneAlignment;
     QString m_viewerProjectDirectory;
     QString m_viewerTaskId;
     QString m_viewerMeshPath;

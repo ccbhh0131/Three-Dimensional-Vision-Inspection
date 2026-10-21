@@ -1,6 +1,7 @@
 #include "core/reconstruction/ReconstructionTask.h"
 
 #include <QFile>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonValue>
 #include <QSaveFile>
@@ -187,11 +188,20 @@ QJsonObject ReconstructionTask::toJson() const
         {QStringLiteral("errorMessage"), errorMessage},
         {QStringLiteral("failedStage"), failedStage},
         {QStringLiteral("exitCode"), exitCode},
-        {QStringLiteral("input"), QJsonObject{{QStringLiteral("imageCount"), inputImageCount}}},
+        {QStringLiteral("input"),
+         QJsonObject{{QStringLiteral("type"), inputType},
+                     {QStringLiteral("sourcePath"), inputSourcePath},
+                     {QStringLiteral("imageCount"), inputImageCount},
+                     {QStringLiteral("rawFrameCount"), rawFrameCount},
+                     {QStringLiteral("blurRejectedFrames"), blurRejectedFrameCount},
+                     {QStringLiteral("duplicateRejectedFrames"), duplicateRejectedFrameCount},
+                     {QStringLiteral("coverageRecoveredFrames"), coverageRecoveredFrameCount}}},
         {QStringLiteral("sparse"),
          QJsonObject{{QStringLiteral("primaryModel"), primaryModelRelativePath},
+                     {QStringLiteral("modelCount"), sparseModelCount},
                      {QStringLiteral("registeredImages"), registeredImageCount},
-                     {QStringLiteral("registrationRatio"), registrationRatio}}},
+                     {QStringLiteral("registrationRatio"), registrationRatio},
+                     {QStringLiteral("trajectoryWarnings"), QJsonArray::fromStringList(trajectoryWarnings)}}},
         {QStringLiteral("outputs"),
          QJsonObject{{QStringLiteral("fusedPointCloud"), fusedPointCloudRelativePath},
                      {QStringLiteral("mesh"), meshRelativePath}}},
@@ -260,13 +270,33 @@ std::optional<ReconstructionTask> ReconstructionTask::fromJson(const QJsonObject
     }
 
     const QJsonObject input = json.value(QStringLiteral("input")).toObject();
+    if (input.value(QStringLiteral("type")).isString()) {
+        task.inputType = input.value(QStringLiteral("type")).toString();
+    }
+    task.inputSourcePath = input.value(QStringLiteral("sourcePath")).toString();
     if (input.contains(QStringLiteral("imageCount"))
         && !readInteger(input, QStringLiteral("imageCount"), &task.inputImageCount, error)) {
         return std::nullopt;
     }
+    for (const auto& field : {qMakePair(QStringLiteral("rawFrameCount"), &task.rawFrameCount),
+                              qMakePair(QStringLiteral("blurRejectedFrames"),
+                                        &task.blurRejectedFrameCount),
+                              qMakePair(QStringLiteral("duplicateRejectedFrames"),
+                                        &task.duplicateRejectedFrameCount),
+                              qMakePair(QStringLiteral("coverageRecoveredFrames"),
+                                        &task.coverageRecoveredFrameCount)}) {
+        if (input.contains(field.first)
+            && !readInteger(input, field.first, field.second, error)) {
+            return std::nullopt;
+        }
+    }
 
     const QJsonObject sparse = json.value(QStringLiteral("sparse")).toObject();
     task.primaryModelRelativePath = sparse.value(QStringLiteral("primaryModel")).toString();
+    if (sparse.contains(QStringLiteral("modelCount"))
+        && !readInteger(sparse, QStringLiteral("modelCount"), &task.sparseModelCount, error)) {
+        return std::nullopt;
+    }
     if (sparse.contains(QStringLiteral("registeredImages"))
         && !readInteger(sparse,
                         QStringLiteral("registeredImages"),
@@ -276,6 +306,11 @@ std::optional<ReconstructionTask> ReconstructionTask::fromJson(const QJsonObject
     }
     if (sparse.value(QStringLiteral("registrationRatio")).isDouble()) {
         task.registrationRatio = sparse.value(QStringLiteral("registrationRatio")).toDouble();
+    }
+    for (const QJsonValue& warning : sparse.value(QStringLiteral("trajectoryWarnings")).toArray()) {
+        if (warning.isString()) {
+            task.trajectoryWarnings.append(warning.toString());
+        }
     }
 
     const QJsonObject outputs = json.value(QStringLiteral("outputs")).toObject();

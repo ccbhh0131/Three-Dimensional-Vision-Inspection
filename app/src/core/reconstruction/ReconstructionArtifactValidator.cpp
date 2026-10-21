@@ -105,6 +105,10 @@ SparseModelSelection ReconstructionArtifactValidator::selectPrimarySparseModel(
             continue;
         }
         const int count = registeredImageCount(model.absolutePath());
+        if (count > 0) {
+            ++selection.modelCount;
+            selection.modelRelativePaths.append(QStringLiteral("sparse/") + modelInfo.fileName());
+        }
         if (!selection.valid || count > selection.registeredImages) {
             selection.valid = count > 0;
             selection.relativePath = QStringLiteral("sparse/") + modelInfo.fileName();

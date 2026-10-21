@@ -1,5 +1,7 @@
 #include "MeshPicking.h"
 
+#include <QVector4D>
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -80,6 +82,17 @@ bool isFiniteVector(const QVector3D& value)
     return std::isfinite(value.x())
         && std::isfinite(value.y())
         && std::isfinite(value.z());
+}
+
+bool isFiniteMatrix(const QMatrix4x4& value)
+{
+    const float* data = value.constData();
+    for (int index = 0; index < 16; ++index) {
+        if (!std::isfinite(data[index])) {
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace
@@ -186,6 +199,60 @@ bool MeshPicking::worldToLogicalPosition(
         framebufferX / devicePixelRatio,
         framebufferY / devicePixelRatio);
     return isFinitePoint(logicalPosition);
+}
+
+bool MeshPicking::transformPoint(const QMatrix4x4& transform,
+                                 const QVector3D& source,
+                                 QVector3D& target)
+{
+    if (!isFiniteMatrix(transform) || !isFiniteVector(source)) {
+        return false;
+    }
+
+    const QVector4D transformed = transform * QVector4D(source, 1.0f);
+    if (!std::isfinite(transformed.x()) || !std::isfinite(transformed.y())
+        || !std::isfinite(transformed.z()) || !std::isfinite(transformed.w())
+        || std::abs(transformed.w()) <= 1.0e-7f) {
+        return false;
+    }
+    target = QVector3D(transformed.x() / transformed.w(),
+                       transformed.y() / transformed.w(),
+                       transformed.z() / transformed.w());
+    return isFiniteVector(target);
+}
+
+bool MeshPicking::transformRay(const Ray& source,
+                               const QMatrix4x4& transform,
+                               Ray& target)
+{
+    if (!source.isValid() || !isFiniteMatrix(transform)) {
+        return false;
+    }
+
+    QVector3D transformedOrigin;
+    if (!transformPoint(transform, source.origin, transformedOrigin)) {
+        return false;
+    }
+    const QVector4D transformedDirection = transform
+        * QVector4D(source.direction, 0.0f);
+    if (!std::isfinite(transformedDirection.x())
+        || !std::isfinite(transformedDirection.y())
+        || !std::isfinite(transformedDirection.z())
+        || !std::isfinite(transformedDirection.w())
+        || std::abs(transformedDirection.w()) > 1.0e-5f) {
+        return false;
+    }
+
+    const std::optional<Ray> transformed = Ray::fromOriginAndDirection(
+        transformedOrigin,
+        QVector3D(transformedDirection.x(),
+                  transformedDirection.y(),
+                  transformedDirection.z()));
+    if (!transformed.has_value()) {
+        return false;
+    }
+    target = *transformed;
+    return true;
 }
 
 bool MeshPicking::intersectTriangle(

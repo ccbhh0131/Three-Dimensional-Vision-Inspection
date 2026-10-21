@@ -80,6 +80,7 @@ bool ReconstructionWorkspace::create(const QString& projectDirectory,
     result.databasePath = QDir(result.root).filePath(QStringLiteral("database.db"));
     result.sparseDirectory = QDir(result.root).filePath(QStringLiteral("sparse"));
     result.denseDirectory = QDir(result.root).filePath(QStringLiteral("dense"));
+    result.refinementDirectory = QDir(result.denseDirectory).filePath(QStringLiteral("refinement"));
     result.logsDirectory = QDir(result.root).filePath(QStringLiteral("logs"));
     result.taskJsonPath = QDir(result.root).filePath(QStringLiteral("task.json"));
     result.inputManifestPath = QDir(result.root).filePath(QStringLiteral("input_manifest.json"));
@@ -96,6 +97,7 @@ bool ReconstructionWorkspace::create(const QString& projectDirectory,
         result.relativeRoot + QStringLiteral("/input"),
         result.relativeRoot + QStringLiteral("/sparse"),
         result.relativeRoot + QStringLiteral("/dense"),
+        result.relativeRoot + QStringLiteral("/dense/refinement"),
         result.relativeRoot + QStringLiteral("/logs"),
     };
     for (const QString& directory : directories) {
@@ -107,6 +109,62 @@ bool ReconstructionWorkspace::create(const QString& projectDirectory,
         }
     }
     *paths = result;
+    return true;
+}
+
+bool ReconstructionWorkspace::openExisting(const QString& projectDirectory,
+                                            const QString& taskId,
+                                            ReconstructionJobPaths* paths,
+                                            QString* error)
+{
+    const auto fail = [error](const QString& message) {
+        if (error != nullptr) {
+            *error = message;
+        }
+        return false;
+    };
+    if (paths == nullptr) {
+        return fail(QStringLiteral("Job 路径输出参数为空。"));
+    }
+    if (taskId.trimmed().isEmpty()
+        || taskId.contains(QRegularExpression(QStringLiteral("[^A-Za-z0-9_-]")))) {
+        return fail(QStringLiteral("taskId 必须是 ASCII 文件名。"));
+    }
+    const QDir project(QDir(projectDirectory).absolutePath());
+    const QString relativeRoot = QStringLiteral("reconstruction/jobs/%1").arg(taskId);
+    const QString root = project.filePath(relativeRoot);
+    const QFileInfo rootInfo(root);
+    if (!project.exists() || !rootInfo.isDir() || rootInfo.isSymLink()) {
+        return fail(QStringLiteral("视频预处理 Job 目录不存在或不安全：%1").arg(root));
+    }
+
+    ReconstructionJobPaths result;
+    result.taskId = taskId;
+    result.projectDirectory = project.absolutePath();
+    result.relativeRoot = relativeRoot;
+    result.root = rootInfo.canonicalFilePath();
+    result.inputDirectory = QDir(result.root).filePath(QStringLiteral("input"));
+    result.databasePath = QDir(result.root).filePath(QStringLiteral("database.db"));
+    result.sparseDirectory = QDir(result.root).filePath(QStringLiteral("sparse"));
+    result.denseDirectory = QDir(result.root).filePath(QStringLiteral("dense"));
+    result.refinementDirectory = QDir(result.denseDirectory).filePath(QStringLiteral("refinement"));
+    result.logsDirectory = QDir(result.root).filePath(QStringLiteral("logs"));
+    result.taskJsonPath = QDir(result.root).filePath(QStringLiteral("task.json"));
+    result.inputManifestPath = QDir(result.root).filePath(QStringLiteral("input_manifest.json"));
+    for (const QString& directory : {result.inputDirectory,
+                                     result.sparseDirectory,
+                                     result.denseDirectory,
+                                     result.refinementDirectory,
+                                     result.logsDirectory}) {
+        const QFileInfo directoryInfo(directory);
+        if (!directoryInfo.isDir() || directoryInfo.isSymLink()) {
+            return fail(QStringLiteral("视频预处理 Job 缺少安全的目录：%1").arg(directory));
+        }
+    }
+    *paths = result;
+    if (error != nullptr) {
+        error->clear();
+    }
     return true;
 }
 

@@ -1,9 +1,11 @@
 #include "app/MainWindow.h"
 
+#include "app/AppShellViewModel.h"
 #include "widgets/BackendPanel.h"
 #include "backend/ReconstructionEngineLocator.h"
 #include "core/mesh/PlyMeshLoader.h"
 #include "core/device/GaugeProfile.h"
+#include "core/realtime/GaugeDataSource.h"
 #include "core/realtime/RealtimeMonitoringController.h"
 #include "widgets/DeveloperSettingsDialog.h"
 #include "widgets/GaugeAssetDialog.h"
@@ -13,26 +15,41 @@
 #include "widgets/LogPanel.h"
 #include "widgets/ModelViewerWidget.h"
 #include "widgets/ProjectPanel.h"
+#include "widgets/ProductDialogStyle.h"
 #include "widgets/ReconstructionPanel.h"
 #include "widgets/VisualGaugeReadingDialog.h"
 
 #include <QAction>
 #include <QAbstractItemView>
 #include <QApplication>
+#include <QColor>
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDialog>
+#include <QDialogButtonBox>
 #include <QDir>
+#include <QFile>
 #include <QFileDialog>
+#include <QLabel>
+#include <QPixmap>
+#include <QPushButton>
+#include <QFileInfo>
 #include <QImageReader>
 #include <QHBoxLayout>
 #include <QInputDialog>
-#include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QMenuBar>
 #include <QRegularExpression>
-#include <QPushButton>
+#include <QQmlContext>
+#include <QQuickItem>
+#include <QQuickWindow>
+#include <QQuickWidget>
+#include <QSGRendererInterface>
+#include <QTextBrowser>
+#include <QUrl>
 #include <QSplitter>
+#include <QVBoxLayout>
 #include <QStackedWidget>
 #include <QStatusBar>
 #include <QTableWidget>
@@ -40,6 +57,7 @@
 #include <QTimer>
 #include <QToolBar>
 #include <QElapsedTimer>
+#include <QVariant>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -97,12 +115,31 @@ DeviceMarkerVisualState markerVisualStateForGaugeStatus(GaugeStatus status)
     return DeviceMarkerVisualState::Unknown;
 }
 
+QString suggestedDeviceMarkerName(const ProjectManager& projectManager)
+{
+    for (int index = 1; ; ++index) {
+        const QString candidate = QStringLiteral("P%1")
+                                      .arg(index, 2, 10, QLatin1Char('0'));
+        bool alreadyUsed = false;
+        for (const DeviceMarker& marker : projectManager.deviceMarkerModel().list()) {
+            if (marker.name.trimmed().compare(candidate, Qt::CaseInsensitive) == 0) {
+                alreadyUsed = true;
+                break;
+            }
+        }
+        if (!alreadyUsed) {
+            return candidate;
+        }
+    }
+}
+
 } // namespace
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
     , m_projectManager(this)
     , m_processRunner(this)
+    , m_appPreferences()
     , m_projectPanel(new ProjectPanel(this))
     , m_imageBrowserPanel(new ImageBrowserPanel(this))
     , m_imagePreviewWidget(new ImagePreviewWidget(this))
@@ -116,8 +153,14 @@ MainWindow::MainWindow(QWidget* parent)
                                                               &m_colmapBackend,
                                                               nullptr,
                                                               this))
+    , m_videoReconstructionController(
+          new VideoReconstructionController(&m_projectManager, this))
     , m_realtimeMonitoringController(
           new realtime::RealtimeMonitoringController(&m_projectManager, this))
+    , m_appShellViewModel(new AppShellViewModel(&m_projectManager,
+                                                m_realtimeMonitoringController,
+                                                &m_appPreferences,
+                                                this))
 {
     setWindowTitle(QStringLiteral("三维视觉检测软件"));
     setStatusBar(new QStatusBar(this));
@@ -151,12 +194,22 @@ MainWindow::MainWindow(QWidget* parent)
     topSplitter->setSizes({240, 560, 320});
 
     auto* centralWidget = new QWidget(this);
+    centralWidget->setObjectName(QStringLiteral("legacyWidgetSurface"));
     auto* centralLayout = new QVBoxLayout(centralWidget);
     centralLayout->addWidget(topSplitter, 2);
     centralLayout->addWidget(m_logPanel, 1);
+    m_legacyWidgetSurface = centralWidget;
     setCentralWidget(centralWidget);
 
     createActions();
+    menuBar()->hide();
+    for (QToolBar* toolbar : findChildren<QToolBar*>()) {
+        toolbar->hide();
+    }
+    statusBar()->hide();
+    if (!qEnvironmentVariableIsSet("VISION3DINSPECTOR_DISABLE_QML_UI")) {
+        createModernInterface();
+    }
 
     m_internalBackendRoot = ReconstructionEngineLocator::internalEngineRoot();
     m_developmentFallbackRoot = ReconstructionEngineLocator::savedDevelopmentBackendRoot();
@@ -211,6 +264,27 @@ MainWindow::MainWindow(QWidget* parent)
             &ReconstructionPanel::cancelRequested,
             this,
             &MainWindow::cancelReconstruction);
+    connect(m_videoReconstructionController,
+            &VideoReconstructionController::snapshotChanged,
+            this,
+            [this] {
+                updateVideoView();
+                if (m_autoContinueVideo && !m_autoContinueVideoStarted
+                    && m_videoReconstructionController->snapshot().canStartReconstruction()) {
+                    m_autoContinueVideoStarted = true;
+                    startVideoReconstruction();
+                }
+            });
+    connect(m_videoReconstructionController,
+            &VideoReconstructionController::logMessage,
+            this,
+            [this](const QString& text, bool isError) {
+                if (isError) {
+                    m_logPanel->appendError(text);
+                } else {
+                    m_logPanel->appendInfo(text);
+                }
+            });
     connect(m_reconstructionPanel,
             &ReconstructionPanel::viewModelRequested,
             this,
@@ -308,12 +382,28 @@ MainWindow::MainWindow(QWidget* parent)
                 m_logPanel->appendError(QStringLiteral("实时监控错误: %1").arg(error));
             });
 
-    m_logPanel->appendInfo(QStringLiteral("应用已启动。当前为 V0.1 Stage 3。"));
+    m_logPanel->appendInfo(QStringLiteral("应用已启动。当前为 Stage 5A QML Hybrid。"));
     m_logPanel->appendInfo(QStringLiteral("当前已接入三维重建引擎。"));
     refreshProjectView();
+    m_appShellViewModel->refresh();
+    syncModernPage();
+    applyViewerPreferences();
     if (!m_backendPanel->backendRoot().isEmpty()) {
         QTimer::singleShot(0, this, &MainWindow::probeBackend);
     }
+    QTimer::singleShot(0, this, [this]() {
+        if (!m_appPreferences.restoreLastProject()) {
+            return;
+        }
+        const QString manifestPath = m_appPreferences.lastProjectManifest();
+        if (manifestPath.isEmpty() || !QFileInfo::exists(manifestPath)) {
+            return;
+        }
+        QString error;
+        if (!openProjectPath(manifestPath, &error) && !error.isEmpty()) {
+            m_logPanel->appendError(QStringLiteral("恢复上次项目失败: %1").arg(error));
+        }
+    });
 }
 
 void MainWindow::createActions()
@@ -344,22 +434,387 @@ void MainWindow::createActions()
     connect(quitAction, &QAction::triggered, this, &QWidget::close);
 }
 
-void MainWindow::createProject()
+void MainWindow::configureQmlWidget(QQuickWidget* widget, const QUrl& source)
 {
-    bool accepted = false;
-    const QString name = QInputDialog::getText(this,
-                                               QStringLiteral("新建项目"),
-                                               QStringLiteral("项目名称:"),
-                                               QLineEdit::Normal,
-                                               QString(),
-                                               &accepted)
-                            .trimmed();
-    if (!accepted) {
+    if (widget == nullptr) {
         return;
     }
+    widget->setResizeMode(QQuickWidget::SizeRootObjectToView);
+    widget->setClearColor(QColor(QStringLiteral("#F6F5F2")));
+    widget->rootContext()->setContextProperty(QStringLiteral("appShellViewModel"),
+                                              m_appShellViewModel);
+    widget->setSource(source);
+    // Keep the presentation adapter explicit on the loaded root object as
+    // well.  This makes the boundary robust for QML files loaded from the
+    // ordinary QRC resource tree and avoids relying on an imported component
+    // to re-resolve the context property after creation.
+    if (widget->rootObject() != nullptr) {
+        widget->rootObject()->setProperty(
+            "viewModel", QVariant::fromValue(static_cast<QObject*>(m_appShellViewModel)));
+    }
+}
+
+void MainWindow::createModernInterface()
+{
+    // The legacy viewer is a QOpenGLWidget.  Qt Quick may otherwise select
+    // D3D11 on Windows, which cannot be composed with that OpenGL surface.
+    QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
+
+    auto* modernRoot = new QWidget(this);
+    modernRoot->setObjectName(QStringLiteral("stage5aModernShell"));
+    modernRoot->setMinimumSize(980, 620);
+    auto* rootLayout = new QVBoxLayout(modernRoot);
+    rootLayout->setContentsMargins(0, 0, 0, 0);
+    rootLayout->setSpacing(0);
+
+    m_topBarWidget = new QQuickWidget(modernRoot);
+    m_topBarWidget->setObjectName(QStringLiteral("qmlTopBar"));
+    m_topBarWidget->setMinimumHeight(60);
+    m_topBarWidget->setMaximumHeight(60);
+    configureQmlWidget(m_topBarWidget, QUrl(QStringLiteral("qrc:/stage5a/TopBar.qml")));
+    rootLayout->addWidget(m_topBarWidget);
+
+    auto* workspaceRow = new QWidget(modernRoot);
+    workspaceRow->setObjectName(QStringLiteral("stage5aWorkspaceRow"));
+    auto* workspaceLayout = new QHBoxLayout(workspaceRow);
+    workspaceLayout->setContentsMargins(0, 0, 0, 0);
+    workspaceLayout->setSpacing(0);
+
+    m_navigationWidget = new QQuickWidget(workspaceRow);
+    m_navigationWidget->setObjectName(QStringLiteral("qmlNavigationRail"));
+    m_navigationWidget->setMinimumWidth(188);
+    m_navigationWidget->setMaximumWidth(204);
+    configureQmlWidget(m_navigationWidget,
+                       QUrl(QStringLiteral("qrc:/stage5a/components/NavigationRail.qml")));
+    workspaceLayout->addWidget(m_navigationWidget);
+
+    auto* centerWorkspace = new QWidget(workspaceRow);
+    centerWorkspace->setObjectName(QStringLiteral("stage5aCenterWorkspace"));
+    auto* centerLayout = new QVBoxLayout(centerWorkspace);
+    centerLayout->setContentsMargins(16, 14, 16, 14);
+    centerLayout->setSpacing(10);
+
+    m_sceneContainer = new QWidget(centerWorkspace);
+    m_sceneContainer->setObjectName(QStringLiteral("stage5aSceneContainer"));
+    auto* sceneLayout = new QVBoxLayout(m_sceneContainer);
+    sceneLayout->setContentsMargins(0, 0, 0, 0);
+    sceneLayout->setSpacing(8);
+    m_sceneToolbarWidget = new QQuickWidget(m_sceneContainer);
+    m_sceneToolbarWidget->setObjectName(QStringLiteral("qmlSceneToolbar"));
+    m_sceneToolbarWidget->setMinimumHeight(44);
+    m_sceneToolbarWidget->setMaximumHeight(220);
+    configureQmlWidget(m_sceneToolbarWidget,
+                       QUrl(QStringLiteral("qrc:/stage5a/SceneToolbar.qml")));
+    if (m_sceneToolbarWidget->rootObject() != nullptr) {
+        connect(m_sceneToolbarWidget->rootObject(),
+                SIGNAL(alignmentPanelVisibilityChanged(bool)),
+                this,
+                SLOT(setSceneAlignmentPanelVisible(bool)));
+    }
+    setSceneAlignmentPanelVisible(false);
+    sceneLayout->addWidget(m_sceneToolbarWidget);
+    m_previewStack->setParent(m_sceneContainer);
+    m_previewStack->setObjectName(QStringLiteral("centralPreviewStack"));
+    sceneLayout->addWidget(m_previewStack, 1);
+    centerLayout->addWidget(m_sceneContainer, 1);
+
+    m_pageWidget = new QQuickWidget(centerWorkspace);
+    m_pageWidget->setObjectName(QStringLiteral("qmlPageHost"));
+    configureQmlWidget(m_pageWidget, QUrl(QStringLiteral("qrc:/stage5a/PageHost.qml")));
+    centerLayout->addWidget(m_pageWidget, 1);
+    workspaceLayout->addWidget(centerWorkspace, 1);
+
+    m_inspectorWidget = new QQuickWidget(workspaceRow);
+    m_inspectorWidget->setObjectName(QStringLiteral("qmlInspector"));
+    m_inspectorWidget->setMinimumWidth(344);
+    m_inspectorWidget->setMaximumWidth(380);
+    configureQmlWidget(m_inspectorWidget, QUrl(QStringLiteral("qrc:/stage5a/Inspector.qml")));
+    workspaceLayout->addWidget(m_inspectorWidget);
+    rootLayout->addWidget(workspaceRow, 1);
+
+    m_statusBarWidget = new QQuickWidget(modernRoot);
+    m_statusBarWidget->setObjectName(QStringLiteral("qmlStatusBar"));
+    m_statusBarWidget->setMinimumHeight(30);
+    m_statusBarWidget->setMaximumHeight(30);
+    configureQmlWidget(m_statusBarWidget, QUrl(QStringLiteral("qrc:/stage5a/StatusBar.qml")));
+    rootLayout->addWidget(m_statusBarWidget);
+
+    // QMainWindow owns its central widget.  Detach the legacy surface before
+    // replacing it so the existing C++ panels remain alive for project,
+    // reconstruction, gauge, and realtime flows routed from the shell.
+    QWidget* legacySurface = takeCentralWidget();
+    if (legacySurface != nullptr) {
+        legacySurface->setParent(this);
+    }
+    m_modernRoot = modernRoot;
+    setCentralWidget(m_modernRoot);
+    if (m_legacyWidgetSurface != nullptr) {
+        m_legacyWidgetSurface->hide();
+    }
+
+    connect(m_appShellViewModel,
+            &AppShellViewModel::currentPageChanged,
+            this,
+            &MainWindow::syncModernPage);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::markerSelectionRequested,
+            this,
+            &MainWindow::ensureModernSelection);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::createProjectRequested,
+            this,
+            &MainWindow::createProject);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::openProjectRequested,
+            this,
+            &MainWindow::openProject);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::importImagesRequested,
+            this,
+            &MainWindow::importImages);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::importVideoRequested,
+            this,
+            &MainWindow::importVideo);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::preprocessVideoRequested,
+            this,
+            &MainWindow::preprocessVideo);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::startPhotoReconstructionRequested,
+            this,
+            &MainWindow::startReconstruction);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::startVideoReconstructionRequested,
+            this,
+            &MainWindow::startVideoReconstruction);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::cancelVideoProcessingRequested,
+            this,
+            &MainWindow::cancelVideoProcessing);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::viewVideoPreviewRequested,
+            this,
+            &MainWindow::viewVideoPreview);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::cancelReconstructionRequested,
+            this,
+            &MainWindow::cancelReconstruction);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::openViewerRequested,
+            this,
+            &MainWindow::open3DModel);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::fitViewerRequested,
+            this,
+            &MainWindow::fitViewer);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::addMarkerRequested,
+            this,
+            &MainWindow::addDeviceMarker);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::deleteMarkerRequested,
+            this,
+            &MainWindow::deleteDeviceMarker);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::resetViewerRequested,
+            this,
+            &MainWindow::resetViewer);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::cameraViewRequested,
+            this,
+            &MainWindow::setCameraView);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::beginSceneAlignmentRequested,
+            this,
+            &MainWindow::beginSceneAlignment);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::sceneAlignmentRotationRequested,
+            this,
+            &MainWindow::rotateSceneAlignment);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::resetSceneAlignmentRequested,
+            this,
+            &MainWindow::resetSceneAlignment);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::cancelSceneAlignmentRequested,
+            this,
+            &MainWindow::cancelSceneAlignment);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::saveSceneAlignmentRequested,
+            this,
+            &MainWindow::saveSceneAlignment);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::visualReadingRequested,
+            this,
+            &MainWindow::visualGaugeReading);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::manualReadingRequested,
+            this,
+            &MainWindow::updateGaugeReading);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::showHistoryRequested,
+            this,
+            &MainWindow::showGaugeHistory);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::createGaugeRequested,
+            this,
+            &MainWindow::createGaugeAsset);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::editGaugeRequested,
+            this,
+            &MainWindow::editGaugeAsset);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::configureRuleRequested,
+            this,
+            &MainWindow::configureGaugeStatusRule);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::startRealtimeRequested,
+            this,
+            &MainWindow::startMockSensor);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::stopRealtimeRequested,
+            this,
+            &MainWindow::stopMockSensor);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::recordRealtimeRequested,
+            this,
+            &MainWindow::recordCurrentSensorSample);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::settingsRequested,
+            this,
+            [this]() { m_appShellViewModel->selectPage(QStringLiteral("settings")); });
+    connect(m_appShellViewModel,
+            &AppShellViewModel::selectDefaultProjectDirectoryRequested,
+            this,
+            &MainWindow::selectDefaultProjectDirectory);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::openThirdPartyLicensesRequested,
+            this,
+            &MainWindow::showThirdPartyLicenses);
+    connect(m_appShellViewModel,
+            &AppShellViewModel::viewerPreferencesChanged,
+            this,
+            &MainWindow::applyViewerPreferences);
+    syncModernPage();
+}
+
+void MainWindow::syncModernPage()
+{
+    if (m_appShellViewModel == nullptr || m_sceneContainer == nullptr
+        || m_pageWidget == nullptr) {
+        return;
+    }
+    const bool scenePage = m_appShellViewModel->currentPage() == QStringLiteral("scene");
+    m_sceneContainer->setVisible(scenePage);
+    m_pageWidget->setVisible(!scenePage);
+    if (m_sceneToolbarWidget != nullptr) {
+        m_sceneToolbarWidget->setVisible(scenePage);
+    }
+}
+
+void MainWindow::selectDefaultProjectDirectory()
+{
+    const QString selected = QFileDialog::getExistingDirectory(
+        this,
+        QStringLiteral("选择默认项目目录"),
+        m_appPreferences.projectDialogDirectory());
+    if (selected.isEmpty() || m_appShellViewModel == nullptr) {
+        return;
+    }
+    m_appShellViewModel->setDefaultProjectDirectory(selected);
+}
+
+void MainWindow::showThirdPartyLicenses()
+{
+    QString noticeText;
+    QFile resource(QStringLiteral(":/stage5a/THIRD_PARTY_NOTICES.md"));
+    if (resource.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        noticeText = QString::fromUtf8(resource.readAll());
+    }
+    if (noticeText.isEmpty()) {
+        const QString noticePath = QDir(QCoreApplication::applicationDirPath())
+                                       .filePath(QStringLiteral("THIRD_PARTY_NOTICES.md"));
+        QFile noticeFile(noticePath);
+        if (noticeFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            noticeText = QString::fromUtf8(noticeFile.readAll());
+        }
+    }
+    if (noticeText.isEmpty()) {
+        noticeText = QStringLiteral("当前发布包未找到第三方许可文本。");
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("第三方许可"));
+    dialog.resize(760, 560);
+    auto* layout = new QVBoxLayout(&dialog);
+    auto* browser = new QTextBrowser(&dialog);
+    browser->setOpenExternalLinks(true);
+    browser->setMarkdown(noticeText);
+    layout->addWidget(browser, 1);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    layout->addWidget(buttons);
+    applyProductDialogStyle(&dialog);
+    styleProductButton(buttons->button(QDialogButtonBox::Close),
+                       ProductButtonRole::Secondary);
+    dialog.exec();
+}
+
+void MainWindow::applyViewerPreferences()
+{
+    if (m_modelViewerWidget == nullptr) {
+        return;
+    }
+    m_modelViewerWidget->setOrbitSensitivity(
+        static_cast<float>(m_appPreferences.orbitSensitivity()));
+    m_modelViewerWidget->setMarkerSize(
+        static_cast<float>(m_appPreferences.markerSize()));
+    if (m_viewerMeshLoaded && m_modelViewerWidget->hasMesh()) {
+        refreshMarkerPresentation();
+    } else {
+        m_modelViewerWidget->update();
+    }
+}
+
+void MainWindow::ensureModernSelection(const QString& markerId)
+{
+    const QString normalized = markerId.trimmed();
+    if (normalized.isEmpty() || !m_projectManager.deviceMarkerById(normalized).has_value()) {
+        return;
+    }
+    m_selectedMarkerId = normalized;
+    if (m_modelViewerWidget != nullptr && m_viewerMeshLoaded) {
+        m_modelViewerWidget->setSelectedMarker(normalized);
+        refreshSelectedMarkerDetails();
+        updateMarkerControls();
+    }
+}
+
+void MainWindow::createProject()
+{
+    if ((m_reconstructionController != nullptr && m_reconstructionController->isRunning())
+        || (m_videoReconstructionController != nullptr
+            && m_videoReconstructionController->isBusy())) {
+        m_logPanel->appendError(QStringLiteral("任务运行期间不能切换项目。"));
+        return;
+    }
+    QInputDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("新建项目"));
+    dialog.setLabelText(QStringLiteral("项目名称"));
+    dialog.setTextValue(QString());
+    dialog.setTextEchoMode(QLineEdit::Normal);
+    dialog.setOkButtonText(QStringLiteral("创建"));
+    dialog.setCancelButtonText(QStringLiteral("取消"));
+    applyProductDialogStyle(&dialog);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    const QString name = dialog.textValue().trimmed();
 
     const QString parentDirectory = QFileDialog::getExistingDirectory(
-        this, QStringLiteral("选择项目保存目录"), QDir::homePath());
+        this, QStringLiteral("选择项目保存目录"), m_appPreferences.projectDialogDirectory());
     if (parentDirectory.isEmpty()) {
         return;
     }
@@ -370,6 +825,11 @@ void MainWindow::createProject()
         return;
     }
 
+    m_appPreferences.rememberProjectDirectory(m_projectManager.projectDirectory());
+    if (m_appPreferences.restoreLastProject()) {
+        m_appPreferences.setLastProjectManifest(
+            QDir(m_projectManager.projectDirectory()).filePath(QStringLiteral("project.json")));
+    }
     m_logPanel->appendInfo(QStringLiteral("新建项目成功: %1").arg(m_projectManager.projectDirectory()));
 }
 
@@ -378,7 +838,7 @@ void MainWindow::openProject()
     const QString manifestPath = QFileDialog::getOpenFileName(
         this,
         QStringLiteral("打开项目"),
-        QDir::homePath(),
+        m_appPreferences.projectDialogDirectory(),
         QStringLiteral("Project Manifest (project.json)"));
     if (manifestPath.isEmpty()) {
         return;
@@ -401,14 +861,34 @@ bool MainWindow::openProjectPath(const QString& fileOrDirectory, QString* error)
         }
         return false;
     }
+    if (m_videoReconstructionController != nullptr
+        && m_videoReconstructionController->isBusy()) {
+        if (error != nullptr) {
+            *error = QStringLiteral("当前正在进行视频预处理，请先取消处理。 ").trimmed();
+        }
+        return false;
+    }
     if (m_realtimeMonitoringController != nullptr) {
         m_realtimeMonitoringController->stop();
     }
-    return m_projectManager.openProject(fileOrDirectory, error);
+    const bool opened = m_projectManager.openProject(fileOrDirectory, error);
+    if (opened) {
+        m_appPreferences.rememberProjectDirectory(m_projectManager.projectDirectory());
+        if (m_appPreferences.restoreLastProject()) {
+            m_appPreferences.setLastProjectManifest(
+                QDir(m_projectManager.projectDirectory()).filePath(QStringLiteral("project.json")));
+        }
+    }
+    return opened;
 }
 
 void MainWindow::closeProject()
 {
+    if (m_videoReconstructionController != nullptr
+        && m_videoReconstructionController->isBusy()) {
+        m_logPanel->appendError(QStringLiteral("当前正在进行视频预处理，请先取消处理。"));
+        return;
+    }
     if (m_reconstructionController != nullptr && m_reconstructionController->isRunning()) {
         m_logPanel->appendError(QStringLiteral("当前正在进行三维重建，不能关闭项目。"));
         return;
@@ -423,7 +903,10 @@ void MainWindow::closeProject()
 void MainWindow::importImages()
 {
     if (!m_projectManager.hasProject()) {
-        return;
+        createProject();
+        if (!m_projectManager.hasProject()) {
+            return;
+        }
     }
 
     QStringList suffixes;
@@ -474,6 +957,188 @@ void MainWindow::importImages()
                                .arg(timer.elapsed()));
 }
 
+void MainWindow::importVideo()
+{
+    if (!m_projectManager.hasProject()) {
+        createProject();
+        if (!m_projectManager.hasProject()) {
+            return;
+        }
+    }
+    if (m_videoReconstructionController->isBusy()) {
+        m_logPanel->appendError(QStringLiteral("视频处理正在运行，请先取消当前处理。"));
+        return;
+    }
+    const QString videoPath = QFileDialog::getOpenFileName(
+        this,
+        QStringLiteral("导入视频进行三维重建"),
+        QDir::homePath(),
+        QStringLiteral("视频文件 (*.mp4 *.mov *.m4v *.avi *.mkv *.webm);;所有文件 (*.*)"));
+    if (videoPath.isEmpty()) {
+        return;
+    }
+    QString error;
+    if (!m_videoReconstructionController->selectVideo(videoPath, &error) && !error.isEmpty()) {
+        m_logPanel->appendError(error);
+    }
+    m_videoProjectDirectory = m_projectManager.projectDirectory();
+    updateVideoView();
+}
+
+void MainWindow::preprocessVideo(int targetFrames, bool autoContinue)
+{
+    m_autoContinueVideo = autoContinue;
+    m_autoContinueVideoStarted = false;
+    QString error;
+    if (!m_videoReconstructionController->preprocess(targetFrames, &error) && !error.isEmpty()) {
+        m_autoContinueVideo = false;
+        m_logPanel->appendError(error);
+    }
+    updateVideoView();
+}
+
+void MainWindow::startVideoReconstruction()
+{
+    if (m_appShellViewModel->canResumeVideoDense()) {
+        QString error;
+        if (!m_reconstructionController->resumeVideoDense(m_backendPanel->backendRoot(), &error)) {
+            m_logPanel->appendError(error);
+            QMessageBox::warning(this, QStringLiteral("无法继续三维重建"), error);
+        }
+        updateReconstructionView();
+        return;
+    }
+    const VideoReconstructionController::Snapshot& snapshot =
+        m_videoReconstructionController->snapshot();
+    if (!snapshot.canStartReconstruction()) {
+        m_logPanel->appendError(
+            snapshot.errorText.isEmpty()
+                ? QStringLiteral("请先完成视频抽帧预览，并确认至少有 20 张有效帧。")
+                : snapshot.errorText);
+        return;
+    }
+    if (m_reconstructionController->isRunning()) {
+        m_logPanel->appendError(QStringLiteral("当前已有三维重建任务正在运行。"));
+        return;
+    }
+    QString error;
+    const ReconstructionInput input = m_videoReconstructionController->reconstructionInput();
+    if (!m_reconstructionController->start(input, m_backendPanel->backendRoot(), &error)) {
+        m_logPanel->appendError(QStringLiteral("无法开始视频三维重建：%1").arg(error));
+        QMessageBox::warning(this, QStringLiteral("无法开始三维重建"), error);
+        return;
+    }
+    m_logPanel->appendInfo(QStringLiteral("视频帧已交给现有 COLMAP 重建流程：%1 张。")
+                               .arg(input.imagePaths.size()));
+    updateReconstructionView();
+}
+
+void MainWindow::cancelVideoProcessing()
+{
+    m_autoContinueVideo = false;
+    m_videoReconstructionController->cancel();
+    updateVideoView();
+}
+
+void MainWindow::viewVideoPreview()
+{
+    const QString imagePath = m_videoReconstructionController->snapshot().quality.contactSheetPath;
+    const QPixmap pixmap(imagePath);
+    if (pixmap.isNull()) {
+        m_logPanel->appendError(QStringLiteral("抽帧预览图不存在或无法读取。"));
+        return;
+    }
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("视频抽帧结果预览"));
+    dialog.setMinimumSize(900, 640);
+    auto* layout = new QVBoxLayout(&dialog);
+    auto* image = new QLabel(&dialog);
+    image->setAlignment(Qt::AlignCenter);
+    image->setPixmap(pixmap.scaled(QSize(1400, 900),
+                                   Qt::KeepAspectRatio,
+                                   Qt::SmoothTransformation));
+    auto* closeButton = new QPushButton(QStringLiteral("关闭"), &dialog);
+    connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
+    layout->addWidget(image, 1);
+    layout->addWidget(closeButton, 0, Qt::AlignRight);
+    dialog.exec();
+}
+
+void MainWindow::updateVideoView()
+{
+    if (m_appShellViewModel == nullptr || m_videoReconstructionController == nullptr) {
+        return;
+    }
+    const VideoReconstructionController::Snapshot& snapshot =
+        m_videoReconstructionController->snapshot();
+    QString state;
+    switch (snapshot.state) {
+    case VideoReconstructionController::State::Empty:
+        state = QStringLiteral("empty");
+        break;
+    case VideoReconstructionController::State::Probing:
+        state = QStringLiteral("probing");
+        break;
+    case VideoReconstructionController::State::Ready:
+        state = QStringLiteral("ready");
+        break;
+    case VideoReconstructionController::State::Extracting:
+        state = QStringLiteral("extracting");
+        break;
+    case VideoReconstructionController::State::Analyzing:
+        state = QStringLiteral("analyzing");
+        break;
+    case VideoReconstructionController::State::PreviewReady:
+        state = QStringLiteral("preview_ready");
+        break;
+    case VideoReconstructionController::State::Cancelled:
+        state = QStringLiteral("cancelled");
+        break;
+    case VideoReconstructionController::State::Failed:
+        state = QStringLiteral("failed");
+        break;
+    }
+    const int totalSeconds = qMax(0, qRound(snapshot.info.durationSeconds));
+    const QString durationText = QStringLiteral("%1:%2")
+                                     .arg(totalSeconds / 60, 2, 10, QLatin1Char('0'))
+                                     .arg(totalSeconds % 60, 2, 10, QLatin1Char('0'));
+    const QString infoText = snapshot.hasInfo
+        ? QStringLiteral("视频：%1 · 时长：%2 · 分辨率：%3×%4 · FPS：%5 · 编码：%6")
+              .arg(QFileInfo(snapshot.info.path).fileName(),
+                   durationText,
+                   QString::number(snapshot.info.width),
+                   QString::number(snapshot.info.height),
+                   QString::number(snapshot.info.fps, 'f', 2),
+                   snapshot.info.codec)
+        : QString();
+    const bool previewReady = snapshot.state == VideoReconstructionController::State::PreviewReady;
+    const QVariantMap stateMap{
+        {QStringLiteral("state"), state},
+        {QStringLiteral("busy"), snapshot.busy()},
+        {QStringLiteral("hasInfo"), snapshot.hasInfo},
+        {QStringLiteral("canPreprocess"), snapshot.canPreprocess()},
+        {QStringLiteral("canStartReconstruction"), snapshot.canStartReconstruction()},
+        {QStringLiteral("previewReady"), previewReady},
+        {QStringLiteral("videoFileName"), QFileInfo(snapshot.info.path).fileName()},
+        {QStringLiteral("infoText"), infoText},
+        {QStringLiteral("statusText"), snapshot.statusText},
+        {QStringLiteral("errorText"), snapshot.errorText},
+        {QStringLiteral("recommendedFrames"), snapshot.recommendedFrames},
+        {QStringLiteral("targetFrames"), snapshot.targetFrames},
+        {QStringLiteral("progress"), snapshot.progress},
+        {QStringLiteral("rawFrameCount"), snapshot.quality.rawFrameCount},
+        {QStringLiteral("blurRejectedCount"), snapshot.quality.blurRejectedCount},
+        {QStringLiteral("duplicateRejectedCount"), snapshot.quality.duplicateRejectedCount},
+        {QStringLiteral("coverageRecoveredCount"), snapshot.quality.coverageRecoveredCount},
+        {QStringLiteral("acceptedFrameCount"), snapshot.quality.acceptedFrameCount},
+        {QStringLiteral("contactSheetSource"),
+         snapshot.quality.contactSheetPath.isEmpty()
+             ? QString()
+             : QUrl::fromLocalFile(snapshot.quality.contactSheetPath).toString()},
+    };
+    m_appShellViewModel->setVideoIngest(stateMap);
+}
+
 void MainWindow::removeSelectedImage()
 {
     const QString assetId = m_imageBrowserPanel->selectedAssetId();
@@ -482,12 +1147,13 @@ void MainWindow::removeSelectedImage()
         return;
     }
 
-    const QMessageBox::StandardButton answer = QMessageBox::question(
-        this,
-        QStringLiteral("从项目中删除"),
-        QStringLiteral("确认从项目中删除图像资产“%1”？\n原始外部文件不会被删除。")
-            .arg(asset->originalFileName));
-    if (answer != QMessageBox::Yes) {
+    if (!confirmProductAction(
+            this,
+            QStringLiteral("从项目中删除"),
+            QStringLiteral("确认删除图像资产“%1”？原始外部文件不会被删除。")
+                .arg(asset->originalFileName),
+            QStringLiteral("删除"),
+            true)) {
         return;
     }
 
@@ -694,7 +1360,7 @@ void MainWindow::startReconstruction()
 {
     QString error;
     if (!m_reconstructionController->start(m_backendPanel->backendRoot(), &error)) {
-        m_logPanel->appendError(QStringLiteral("无法开始三维重建，请先检查重建引擎配置。"));
+        m_logPanel->appendError(QStringLiteral("无法开始三维重建：%1").arg(error));
         updateReconstructionView();
         return;
     }
@@ -735,6 +1401,16 @@ void MainWindow::onReconstructionFinished(bool success)
 
 void MainWindow::refreshProjectView()
 {
+    const QString currentProjectDirectory =
+        m_projectManager.hasProject() ? QDir(m_projectManager.projectDirectory()).absolutePath()
+                                      : QString();
+    if (!m_videoProjectDirectory.isEmpty()
+        && QDir::cleanPath(m_videoProjectDirectory)
+               != QDir::cleanPath(currentProjectDirectory)) {
+        m_videoReconstructionController->reset();
+        m_autoContinueVideo = false;
+    }
+    m_videoProjectDirectory = currentProjectDirectory;
     const std::optional<ProjectManifest>& manifest = m_projectManager.currentManifest();
     if (!manifest.has_value()) {
         clearViewerAssociation();
@@ -744,6 +1420,10 @@ void MainWindow::refreshProjectView()
         m_statusLabel->setText(QStringLiteral("未打开项目"));
         updateAssetActions();
         updateReconstructionView();
+        if (m_appShellViewModel != nullptr) {
+            m_appShellViewModel->refresh();
+    updateVideoView();
+        }
         return;
     }
 
@@ -768,14 +1448,19 @@ void MainWindow::refreshProjectView()
     updateAssetActions();
     updateReconstructionView();
     refreshSelectedMarkerDetails();
+    if (m_appShellViewModel != nullptr) {
+        m_appShellViewModel->refresh();
+    }
 }
 
 void MainWindow::updateAssetActions()
 {
     const bool hasProject = m_projectManager.hasProject();
     const bool hasSelection = hasProject && !m_imageBrowserPanel->selectedAssetId().isEmpty();
-    const bool reconstructionRunning = m_reconstructionController != nullptr
-                                      && m_reconstructionController->isRunning();
+    const bool reconstructionRunning =
+        (m_reconstructionController != nullptr && m_reconstructionController->isRunning())
+        || (m_videoReconstructionController != nullptr
+            && m_videoReconstructionController->isBusy());
     if (m_importImagesAction != nullptr) {
         m_importImagesAction->setEnabled(hasProject && !reconstructionRunning);
     }
@@ -815,6 +1500,9 @@ void MainWindow::updateReconstructionView()
                                             m_backendPanel->isGpuAvailable());
     m_reconstructionPanel->setRunning(m_reconstructionController->isRunning());
     updateAssetActions();
+    if (m_appShellViewModel != nullptr) {
+        m_appShellViewModel->refresh();
+    }
 }
 
 void MainWindow::open3DModel()
@@ -825,6 +1513,10 @@ void MainWindow::open3DModel()
         m_reconstructionPanel->setMeshAvailable(false);
         showImagePreview();
         return;
+    }
+
+    if (m_appShellViewModel != nullptr) {
+        m_appShellViewModel->selectPage(QStringLiteral("scene"));
     }
 
     const ReconstructionMeshArtifact artifact =
@@ -849,6 +1541,7 @@ void MainWindow::open3DModel()
         m_previewStack->setCurrentWidget(m_modelViewerWidget);
         m_reconstructionPanel->setViewerLoaded(true);
         refreshMarkerPresentation();
+        scheduleViewerFit();
         m_logPanel->appendInfo(QStringLiteral("已切换到已加载的三维模型。"));
         return;
     }
@@ -878,6 +1571,9 @@ void MainWindow::open3DModel()
         return;
     }
 
+    m_modelViewerWidget->setSceneAlignment(
+        m_projectManager.currentManifest()->sceneAlignment());
+
     m_viewerMeshLoaded = true;
     m_viewerProjectDirectory = projectDirectory;
     m_viewerTaskId = artifact.taskId;
@@ -886,11 +1582,23 @@ void MainWindow::open3DModel()
     refreshMarkerPresentation();
     m_previewStack->setCurrentWidget(m_modelViewerWidget);
     m_reconstructionPanel->setViewerLoaded(true);
+    scheduleViewerFit();
     m_logPanel->appendInfo(QStringLiteral("已加载三维模型并完成 Fit To View。"));
     m_logPanel->appendProcess(QStringLiteral("mesh path=%1; cpu load=%2 ms; normal generation=%3 ms")
                                   .arg(artifact.path)
                                   .arg(loadResult.metrics.loadMilliseconds, 0, 'f', 2)
                                   .arg(loadResult.metrics.normalGenerationMilliseconds, 0, 'f', 2));
+}
+
+void MainWindow::fitViewer()
+{
+    if (!m_viewerMeshLoaded || m_modelViewerWidget == nullptr
+        || !m_modelViewerWidget->hasMesh()) {
+        open3DModel();
+        return;
+    }
+    m_modelViewerWidget->fitToView();
+    m_previewStack->setCurrentWidget(m_modelViewerWidget);
 }
 
 void MainWindow::resetViewer()
@@ -904,11 +1612,159 @@ void MainWindow::resetViewer()
     m_logPanel->appendInfo(QStringLiteral("三维视图已重置。"));
 }
 
+void MainWindow::setCameraView(const QString& view)
+{
+    if (!m_viewerMeshLoaded || !m_modelViewerWidget->hasMesh()) {
+        m_logPanel->appendError(QStringLiteral("无法切换三维视图：当前没有已加载的模型。"));
+        return;
+    }
+
+    const QString normalized = view.trimmed().toLower();
+    if (normalized == QStringLiteral("front")) {
+        m_modelViewerWidget->setFrontView();
+    } else if (normalized == QStringLiteral("back")) {
+        m_modelViewerWidget->setBackView();
+    } else if (normalized == QStringLiteral("left")) {
+        m_modelViewerWidget->setLeftView();
+    } else if (normalized == QStringLiteral("right")) {
+        m_modelViewerWidget->setRightView();
+    } else if (normalized == QStringLiteral("top")) {
+        m_modelViewerWidget->setTopView();
+    } else if (normalized == QStringLiteral("bottom")) {
+        m_modelViewerWidget->setBottomView();
+    } else if (normalized == QStringLiteral("isometric")) {
+        m_modelViewerWidget->setIsometricView();
+    } else {
+        return;
+    }
+
+    m_previewStack->setCurrentWidget(m_modelViewerWidget);
+}
+
+void MainWindow::beginSceneAlignment()
+{
+    if (!m_viewerMeshLoaded || m_modelViewerWidget == nullptr
+        || !m_modelViewerWidget->hasMesh()
+        || !m_projectManager.currentManifest().has_value()) {
+        m_logPanel->appendError(QStringLiteral("无法开始方向校正：当前没有已加载的三维模型。"));
+        if (m_appShellViewModel != nullptr) {
+            m_appShellViewModel->setAlignmentEditing(false);
+        }
+        return;
+    }
+
+    m_originalSceneAlignment = m_projectManager.currentManifest()->sceneAlignment();
+    m_editSceneAlignment = m_originalSceneAlignment;
+    m_sceneAlignmentEditing = true;
+    m_modelViewerWidget->setSceneAlignment(m_editSceneAlignment);
+    m_appShellViewModel->setAlignmentEditing(true);
+    m_logPanel->appendInfo(QStringLiteral(
+        "已进入方向校正：当前修改仅为临时预览，点击保存方向后才写入 project.json。"));
+}
+
+void MainWindow::rotateSceneAlignment(const QString& axis, double degrees)
+{
+    if (!m_sceneAlignmentEditing || m_modelViewerWidget == nullptr
+        || !m_modelViewerWidget->hasMesh()) {
+        return;
+    }
+    if (!std::isfinite(degrees)
+        || !m_editSceneAlignment.rotateByAxis(axis, static_cast<float>(degrees))) {
+        m_logPanel->appendError(QStringLiteral("方向校正失败：旋转轴或角度无效。"));
+        return;
+    }
+    m_modelViewerWidget->setSceneAlignment(m_editSceneAlignment);
+}
+
+void MainWindow::resetSceneAlignment()
+{
+    if (!m_sceneAlignmentEditing || m_modelViewerWidget == nullptr
+        || !m_modelViewerWidget->hasMesh()) {
+        return;
+    }
+    m_editSceneAlignment.reset();
+    m_modelViewerWidget->setSceneAlignment(m_editSceneAlignment);
+    m_logPanel->appendInfo(QStringLiteral("方向校正已临时重置为 Identity；点击保存方向后才会持久化。"));
+}
+
+void MainWindow::cancelSceneAlignment()
+{
+    if (!m_sceneAlignmentEditing) {
+        return;
+    }
+    m_editSceneAlignment = m_originalSceneAlignment;
+    if (m_modelViewerWidget != nullptr && m_modelViewerWidget->hasMesh()) {
+        m_modelViewerWidget->setSceneAlignment(m_originalSceneAlignment);
+    }
+    m_sceneAlignmentEditing = false;
+    m_appShellViewModel->setAlignmentEditing(false);
+    m_logPanel->appendInfo(QStringLiteral("已取消方向校正，project.json 未修改。"));
+}
+
+void MainWindow::saveSceneAlignment()
+{
+    if (!m_sceneAlignmentEditing || m_modelViewerWidget == nullptr
+        || !m_modelViewerWidget->hasMesh()) {
+        return;
+    }
+
+    QString error;
+    if (!m_projectManager.setSceneAlignment(m_editSceneAlignment, &error)) {
+        showProjectError(error);
+        return;
+    }
+
+    m_originalSceneAlignment = m_editSceneAlignment;
+    m_modelViewerWidget->setSceneAlignment(m_originalSceneAlignment);
+    m_modelViewerWidget->fitToView();
+    m_sceneAlignmentEditing = false;
+    m_appShellViewModel->setAlignmentEditing(false);
+    m_logPanel->appendInfo(QStringLiteral("模型方向已保存，并按校准后的模型边界重新适配视图。"));
+}
+
+void MainWindow::setSceneAlignmentPanelVisible(bool visible)
+{
+    if (m_sceneToolbarWidget == nullptr) {
+        return;
+    }
+    const int height = visible ? 214 : 44;
+    m_sceneToolbarWidget->setMinimumHeight(height);
+    m_sceneToolbarWidget->setMaximumHeight(height);
+}
+
+void MainWindow::scheduleViewerFit()
+{
+    if (!m_appPreferences.autoFit()) {
+        return;
+    }
+    QTimer::singleShot(0, m_modelViewerWidget, [this]() {
+        // Let QStackedWidget/QOpenGLWidget finish the visibility and viewport
+        // update before recalculating the projection from the mesh bounds.
+        QTimer::singleShot(50, m_modelViewerWidget, [this]() {
+            if (m_modelViewerWidget != nullptr
+                && m_viewerMeshLoaded
+                && m_modelViewerWidget->hasMesh()
+                && m_modelViewerWidget->isVisible()
+                && m_modelViewerWidget->width() > 1
+                && m_modelViewerWidget->height() > 1) {
+                m_modelViewerWidget->fitToView();
+            }
+        });
+    });
+}
+
 void MainWindow::onSurfacePicked(const SurfaceHit& hit)
 {
     if (!hit.isValid()) {
         onSurfaceMissed();
         return;
+    }
+
+    // A new surface hit starts a new marker-placement transaction.  Clear a
+    // previous marker selection first so the add/delete actions cannot remain
+    // coupled to the marker that was selected before this pick.
+    if (!m_selectedMarkerId.isEmpty() && m_modelViewerWidget != nullptr) {
+        m_modelViewerWidget->setSelectedMarker(QString());
     }
 
     m_pendingSurfaceHit = hit;
@@ -944,6 +1800,9 @@ void MainWindow::onMarkerSelected(const QString& markerId)
     if (m_selectedMarkerId.isEmpty()) {
         m_reconstructionPanel->clearSelectedMarkerDetails();
         updateMarkerControls();
+        if (m_appShellViewModel != nullptr) {
+            m_appShellViewModel->setSelectedMarkerId(QString());
+        }
         return;
     }
 
@@ -957,6 +1816,9 @@ void MainWindow::onMarkerSelected(const QString& markerId)
         return;
     }
     refreshSelectedMarkerDetails();
+    if (m_appShellViewModel != nullptr) {
+        m_appShellViewModel->setSelectedMarkerId(m_selectedMarkerId);
+    }
     m_logPanel->appendInfo(QStringLiteral("已选择设备标记: %1 (%2)")
                                .arg(marker->name, marker->id));
     updateMarkerControls();
@@ -1001,6 +1863,9 @@ void MainWindow::refreshSelectedMarkerDetails()
         liveState,
         currentStatus,
         gauge.has_value() ? gauge->unit : QString());
+    if (m_appShellViewModel != nullptr) {
+        m_appShellViewModel->setSelectedMarkerId(m_selectedMarkerId);
+    }
     updateMarkerControls();
 }
 
@@ -1015,15 +1880,19 @@ void MainWindow::addDeviceMarker()
         return;
     }
 
-    bool accepted = false;
-    const QString name = QInputDialog::getText(this,
-                                               QStringLiteral("添加设备标记"),
-                                               QStringLiteral("设备名称 / ID:"),
-                                               QLineEdit::Normal,
-                                               QStringLiteral("P01"),
-                                               &accepted)
-                            .trimmed();
-    if (!accepted || name.isEmpty()) {
+    QInputDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("添加设备"));
+    dialog.setLabelText(QStringLiteral("设备名称"));
+    dialog.setTextValue(suggestedDeviceMarkerName(m_projectManager));
+    dialog.setTextEchoMode(QLineEdit::Normal);
+    dialog.setOkButtonText(QStringLiteral("添加"));
+    dialog.setCancelButtonText(QStringLiteral("取消"));
+    applyProductDialogStyle(&dialog);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    const QString name = dialog.textValue().trimmed();
+    if (name.isEmpty()) {
         return;
     }
 
@@ -1056,19 +1925,25 @@ void MainWindow::deleteDeviceMarker()
     }
 
     const QString markerId = m_selectedMarkerId;
+    const std::optional<DeviceMarker> marker =
+        m_projectManager.deviceMarkerById(markerId);
+    if (!marker.has_value()) {
+        m_selectedMarkerId.clear();
+        updateMarkerControls();
+        return;
+    }
     const std::optional<GaugeAsset> boundGauge =
         m_projectManager.gaugeAssetForMarker(markerId);
-    if (boundGauge.has_value()) {
-        const QMessageBox::StandardButton answer = QMessageBox::question(
-            this,
-            QStringLiteral("删除设备标记"),
-            QStringLiteral("设备标记 %1 已绑定仪表资产“%2”。删除标记将同时删除该仪表资产，是否继续？")
-                .arg(markerId, boundGauge->name),
-            QMessageBox::Yes | QMessageBox::No,
-            QMessageBox::No);
-        if (answer != QMessageBox::Yes) {
-            return;
-        }
+    const QString confirmationText = boundGauge.has_value()
+        ? QStringLiteral("设备标记“%1”已绑定仪表资产“%2”。删除后会同时移除该仪表资产及其巡检记录，是否继续？")
+              .arg(marker->name, boundGauge->name)
+        : QStringLiteral("确定删除设备标记“%1”吗？此操作不可撤销。").arg(marker->name);
+    if (!confirmProductAction(this,
+                              QStringLiteral("删除设备标记"),
+                              confirmationText,
+                              QStringLiteral("删除"),
+                              true)) {
+        return;
     }
     if (boundGauge.has_value()) {
         m_realtimeMonitoringController->stopForGauge(boundGauge->id);
@@ -1163,25 +2038,26 @@ void MainWindow::updateGaugeReading()
         return;
     }
 
-    bool accepted = false;
-    const QString text = QInputDialog::getText(this,
-                                               QStringLiteral("手动更新读数"),
-                                               QStringLiteral("读数:"),
-                                               QLineEdit::Normal,
-                                               existing->latestValue.has_value()
-                                                   ? QString::number(*existing->latestValue, 'g', 15)
-                                                   : QString(),
-                                               &accepted)
-                             .trimmed();
-    if (!accepted) {
+    QInputDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("手动更新读数"));
+    dialog.setLabelText(QStringLiteral("读数"));
+    dialog.setTextValue(existing->latestValue.has_value()
+                            ? QString::number(*existing->latestValue, 'g', 15)
+                            : QString());
+    dialog.setTextEchoMode(QLineEdit::Normal);
+    dialog.setOkButtonText(QStringLiteral("保存"));
+    dialog.setCancelButtonText(QStringLiteral("取消"));
+    applyProductDialogStyle(&dialog);
+    if (dialog.exec() != QDialog::Accepted) {
         return;
     }
+    const QString text = dialog.textValue().trimmed();
     bool ok = false;
     const double value = text.toDouble(&ok);
     if (!ok || !std::isfinite(value)) {
-        QMessageBox::warning(this,
-                             QStringLiteral("读数无效"),
-                             QStringLiteral("读数必须是有限数字。"));
+        showProductWarning(this,
+                           QStringLiteral("读数无效"),
+                           QStringLiteral("读数必须是有限数字。"));
         return;
     }
     QString error;
@@ -1358,7 +2234,11 @@ void MainWindow::startMockSensor()
         return;
     }
     QString error;
-    if (!m_realtimeMonitoringController->startMockSensor(gauge->id, &error)) {
+    if (!m_realtimeMonitoringController->startMockSensor(
+            gauge->id,
+            realtime::MockSensorDataSource::defaultSequence(),
+            m_appPreferences.realtimePollIntervalMs(),
+            &error)) {
         showProjectError(error);
         return;
     }
@@ -1513,6 +2393,9 @@ void MainWindow::showGaugeHistory()
         viewImageButton->setEnabled(false);
         detailLabel->setText(QStringLiteral("暂无历史记录。"));
     }
+    applyProductDialogStyle(&dialog);
+    styleProductButton(viewImageButton, ProductButtonRole::Secondary);
+    styleProductButton(closeButton, ProductButtonRole::Secondary);
     dialog.exec();
 }
 
@@ -1528,13 +2411,13 @@ void MainWindow::deleteGaugeAsset()
         refreshSelectedMarkerDetails();
         return;
     }
-    const QMessageBox::StandardButton answer = QMessageBox::question(
-        this,
-        QStringLiteral("删除仪表资产"),
-        QStringLiteral("确定删除仪表资产“%1”吗？设备标记将保留。").arg(existing->name),
-        QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No);
-    if (answer != QMessageBox::Yes) {
+    if (!confirmProductAction(
+            this,
+            QStringLiteral("删除仪表资产"),
+            QStringLiteral("确定删除仪表资产“%1”吗？设备标记会保留，但关联巡检记录也会删除。")
+                .arg(existing->name),
+            QStringLiteral("删除"),
+            true)) {
         return;
     }
     m_realtimeMonitoringController->stopForGauge(existing->id);
@@ -1550,6 +2433,12 @@ void MainWindow::deleteGaugeAsset()
 
 void MainWindow::clearViewerAssociation()
 {
+    m_sceneAlignmentEditing = false;
+    m_originalSceneAlignment.reset();
+    m_editSceneAlignment.reset();
+    if (m_appShellViewModel != nullptr) {
+        m_appShellViewModel->setAlignmentEditing(false);
+    }
     clearPendingSurfaceHit();
     if (m_modelViewerWidget != nullptr && m_modelViewerWidget->hasMesh()) {
         m_modelViewerWidget->clearMesh();
@@ -1618,7 +2507,7 @@ void MainWindow::refreshMarkerPresentation()
         }
         views.append(view);
     }
-    m_modelViewerWidget->setMarkers(views);
+    m_modelViewerWidget->setMarkers(m_appPreferences.showMarkers() ? views : QVector<DeviceMarkerView>());
     if (!m_selectedMarkerId.isEmpty()
         && !m_projectManager.deviceMarkerById(m_selectedMarkerId).has_value()) {
         m_selectedMarkerId.clear();
@@ -1634,14 +2523,14 @@ void MainWindow::refreshMarkerPresentation()
     if (!m_selectedMarkerId.isEmpty()) {
         refreshSelectedMarkerDetails();
     }
+    if (m_appShellViewModel != nullptr) {
+        m_appShellViewModel->refresh();
+    }
     updateMarkerControls();
 }
 
 void MainWindow::updateMarkerControls()
 {
-    if (m_reconstructionPanel == nullptr) {
-        return;
-    }
     const bool canAdd = m_hasPendingSurfaceHit
         && m_viewerMeshLoaded
         && m_pendingSurfaceTaskId == m_viewerTaskId
@@ -1650,6 +2539,13 @@ void MainWindow::updateMarkerControls()
     const bool canDelete = !m_selectedMarkerId.isEmpty()
         && m_viewerMeshLoaded
         && m_projectManager.deviceMarkerById(m_selectedMarkerId).has_value();
+    if (m_appShellViewModel != nullptr) {
+        m_appShellViewModel->setCanAddMarker(canAdd);
+        m_appShellViewModel->setCanDeleteMarker(canDelete);
+    }
+    if (m_reconstructionPanel == nullptr) {
+        return;
+    }
     m_reconstructionPanel->setMarkerActionEnabled(canAdd, canDelete);
     const bool hasSelectedMarker = !m_selectedMarkerId.isEmpty()
         && m_viewerMeshLoaded
@@ -1674,7 +2570,7 @@ void MainWindow::showImagePreview()
 void MainWindow::showProjectError(const QString& message)
 {
     m_logPanel->appendError(message);
-    QMessageBox::warning(this, QStringLiteral("项目操作失败"), message);
+    showProductWarning(this, QStringLiteral("项目操作失败"), message);
 }
 
 } // namespace vision3d

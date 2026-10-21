@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QString>
+#include <QStringList>
 
 namespace vision3d {
 
@@ -9,6 +10,8 @@ struct SparseModelSelection
     bool valid = false;
     QString relativePath;
     int registeredImages = 0;
+    int modelCount = 0;
+    QStringList modelRelativePaths;
     QString message;
 };
 

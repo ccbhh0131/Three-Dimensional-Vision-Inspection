@@ -23,6 +23,14 @@ Connect photos or video, COLMAP reconstruction, 3D device markers, gauge assets,
 
 The task protocol and deployment scripts in [app/local_ai](app/local_ai/README.md) are experimental extensions. Their presence does not establish general AI mesh-repair capability.
 
+## Reconstructed model showcase
+
+The existing reconstructed model remains on display in the OpenGL viewer, including model viewing, camera interaction and 3D device markers. These are actual captures from the earlier client; the next section shows the complete current interface.
+
+| Model overview | Camera interaction and device marker |
+| --- | --- |
+| ![Reconstructed model in the OpenGL viewer](docs/images/viewer_overview.png) | ![Model interaction and device marker](docs/images/viewer_interaction.png) |
+
 ## Current interface
 
 These screenshots were captured as full-window views from the actual client on 2026-10-29. They show the initial state without a loaded project; they are not evidence of reconstruction quality, physical device connectivity or automated gauge-reading accuracy.
@@ -39,7 +47,7 @@ These screenshots were captured as full-window views from the actual client on 2
 
 ![Current visual inspection workspace without a selected gauge](docs/images/ui-20261029-inspection.png)
 
-Earlier Widgets screenshots remain in `docs/images/` as historical material and are no longer presented here as the current interface.
+The model showcase retains actual captures from the earlier client. The screenshots in this section show the current interface.
 
 ## Video-to-model workflow
 

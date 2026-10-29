@@ -76,3 +76,7 @@ into this repository.
 - Virtual environments, cache, logs and build outputs.
 - External third-party repository checkouts and copied source.
 - Qt, OpenCV, COLMAP and SerialBus/SerialPort binary packages.
+
+## Video tool runtime
+
+FFmpeg and ffprobe are external optional tools used for local video probing and frame extraction. No FFmpeg binaries or source are bundled. The applicable license depends on the selected distribution and its build configuration; review and include the corresponding license and redistribution materials when packaging a runtime.

@@ -41,6 +41,7 @@ public:
     void invalidateContext();
 
     void setMarkers(const QVector<DeviceMarkerView>& markers);
+    void setPointSizeScale(float scale);
     bool clearMarkers();
     bool draw(const QMatrix4x4& model,
               const QMatrix4x4& view,
@@ -66,6 +67,7 @@ private:
     int m_projectionLocation = -1;
     int m_pointSizeLocation = -1;
     QVector<DeviceMarkerView> m_markers;
+    float m_pointSizeScale = 1.0f;
     bool m_markersPendingUpload = false;
     MarkerRendererStatus m_status;
 };

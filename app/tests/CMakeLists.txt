@@ -21,7 +21,7 @@ if(MSVC)
     target_compile_options(test_project_manifest PRIVATE /FS)
 endif()
 target_include_directories(test_project_manifest PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
-target_link_libraries(test_project_manifest PRIVATE Qt6::Core Qt6::Test)
+target_link_libraries(test_project_manifest PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
 add_test(NAME project_manifest COMMAND test_project_manifest)
 
 add_executable(test_colmap_backend
@@ -86,6 +86,12 @@ add_executable(test_main_window
     test_main_window.cpp
     ../src/app/MainWindow.cpp
     ../src/app/MainWindow.h
+    ../src/app/AppPreferences.cpp
+    ../src/app/AppPreferences.h
+    ../src/app/AppShellViewModel.cpp
+    ../src/app/AppShellViewModel.h
+    ../resources/branding.qrc
+    ../src/qml/qml.qrc
     ../src/core/project/ProjectManager.cpp
     ../src/core/project/ProjectManager.h
     ../src/core/project/ProjectManifest.cpp
@@ -115,12 +121,27 @@ add_executable(test_main_window
     ../src/core/inspection/InspectionRecord.h
     ../src/core/reconstruction/ReconstructionArtifactValidator.cpp
     ../src/core/reconstruction/ReconstructionArtifactValidator.h
+    ../src/core/reconstruction/CameraTrajectoryValidator.cpp
+    ../src/core/reconstruction/CameraTrajectoryValidator.h
     ../src/core/reconstruction/ReconstructionController.cpp
     ../src/core/reconstruction/ReconstructionController.h
     ../src/core/reconstruction/ReconstructionTask.cpp
     ../src/core/reconstruction/ReconstructionTask.h
     ../src/core/reconstruction/ReconstructionWorkspace.cpp
     ../src/core/reconstruction/ReconstructionWorkspace.h
+    ../src/core/video/FrameQualityAnalyzer.cpp
+    ../src/core/video/FrameQualityAnalyzer.h
+    ../src/core/video/FrameSamplingPolicy.cpp
+    ../src/core/video/FrameSamplingPolicy.h
+    ../src/core/video/VideoFrameExtractor.cpp
+    ../src/core/video/VideoFrameExtractor.h
+    ../src/core/video/VideoInfo.h
+    ../src/core/video/VideoProbe.cpp
+    ../src/core/video/VideoProbe.h
+    ../src/core/video/VideoReconstructionController.cpp
+    ../src/core/video/VideoReconstructionController.h
+    ../src/core/video/VideoToolBackend.cpp
+    ../src/core/video/VideoToolBackend.h
     ../src/backend/BackendProbeResult.h
     ../src/backend/ReconstructionBackend.h
     ../src/backend/ColmapBackend.cpp
@@ -145,6 +166,8 @@ add_executable(test_main_window
     ../src/widgets/LogPanel.h
     ../src/widgets/ProjectPanel.cpp
     ../src/widgets/ProjectPanel.h
+    ../src/widgets/ProductDialogStyle.cpp
+    ../src/widgets/ProductDialogStyle.h
     ../src/widgets/ReconstructionPanel.cpp
     ../src/widgets/ReconstructionPanel.h
     ../src/core/geometry/BoundingBox.cpp
@@ -189,10 +212,17 @@ target_link_libraries(test_main_window PRIVATE
     Qt6::OpenGLWidgets
     Qt6::Network
     Qt6::SerialBus
+    Qt6::Qml
+    Qt6::Quick
+    Qt6::QuickWidgets
+    Qt6::QuickControls2
     Qt6::Test
     ${OpenCV_LIBS}
 )
 add_test(NAME main_window_probe COMMAND test_main_window)
+set_tests_properties(main_window_probe PROPERTIES
+    ENVIRONMENT "VISION3DINSPECTOR_DISABLE_QML_UI=1"
+)
 
 add_executable(test_gauge_status
     test_gauge_status.cpp
@@ -323,6 +353,8 @@ add_executable(test_image_assets
     ../src/core/process/ProcessRunner.h
     ../src/core/reconstruction/ReconstructionArtifactValidator.cpp
     ../src/core/reconstruction/ReconstructionArtifactValidator.h
+    ../src/core/reconstruction/CameraTrajectoryValidator.cpp
+    ../src/core/reconstruction/CameraTrajectoryValidator.h
     ../src/core/reconstruction/ReconstructionController.cpp
     ../src/core/reconstruction/ReconstructionController.h
     ../src/core/reconstruction/ReconstructionTask.cpp
@@ -368,6 +400,8 @@ add_executable(test_reconstruction
     ../src/core/project/ProjectManifest.h
     ../src/core/reconstruction/ReconstructionArtifactValidator.cpp
     ../src/core/reconstruction/ReconstructionArtifactValidator.h
+    ../src/core/reconstruction/CameraTrajectoryValidator.cpp
+    ../src/core/reconstruction/CameraTrajectoryValidator.h
     ../src/core/reconstruction/ReconstructionController.cpp
     ../src/core/reconstruction/ReconstructionController.h
     ../src/core/reconstruction/ReconstructionTask.cpp
@@ -382,6 +416,33 @@ endif()
 target_include_directories(test_reconstruction PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
 target_link_libraries(test_reconstruction PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
 add_test(NAME reconstruction COMMAND test_reconstruction)
+
+add_executable(test_video_reconstruction
+    test_video_reconstruction.cpp
+    ../src/core/video/FrameQualityAnalyzer.cpp
+    ../src/core/video/FrameQualityAnalyzer.h
+    ../src/core/video/FrameSamplingPolicy.cpp
+    ../src/core/video/FrameSamplingPolicy.h
+    ../src/core/video/VideoFrameExtractor.cpp
+    ../src/core/video/VideoFrameExtractor.h
+    ../src/core/video/VideoInfo.h
+    ../src/core/video/VideoProbe.cpp
+    ../src/core/video/VideoProbe.h
+    ../src/core/video/VideoToolBackend.cpp
+    ../src/core/video/VideoToolBackend.h
+)
+target_compile_features(test_video_reconstruction PRIVATE cxx_std_17)
+if(MSVC)
+    target_compile_options(test_video_reconstruction PRIVATE /W4 /permissive- /FS)
+endif()
+target_include_directories(test_video_reconstruction PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/../src"
+    ${OpenCV_INCLUDE_DIRS}
+)
+target_link_libraries(test_video_reconstruction PRIVATE
+    Qt6::Core Qt6::Gui Qt6::Test ${OpenCV_LIBS}
+)
+add_test(NAME video_reconstruction COMMAND test_video_reconstruction)
 
 add_executable(test_mesh_loader
     test_mesh_loader.cpp

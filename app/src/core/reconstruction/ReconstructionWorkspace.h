@@ -17,6 +17,7 @@ struct ReconstructionJobPaths
     QString databasePath;
     QString sparseDirectory;
     QString denseDirectory;
+    QString refinementDirectory;
     QString logsDirectory;
     QString taskJsonPath;
     QString inputManifestPath;
@@ -36,6 +37,11 @@ public:
                        const QString& taskId,
                        ReconstructionJobPaths* paths,
                        QString* error = nullptr);
+
+    static bool openExisting(const QString& projectDirectory,
+                             const QString& taskId,
+                             ReconstructionJobPaths* paths,
+                             QString* error = nullptr);
 
     static bool stageInputs(const ReconstructionJobPaths& paths,
                             const QList<AssetRecord>& assets,

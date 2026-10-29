@@ -46,18 +46,21 @@ void ModelViewerWidget::setMesh(MeshData mesh)
     if (!mesh.isValid(&validationError)) {
         clearMarkerPresentation();
         m_mesh = MeshData();
+        m_sceneAlignment.reset();
         m_hasMesh = false;
         m_meshPendingUpload = false;
         m_meshError = QStringLiteral("MeshData validation failed: %1").arg(validationError);
         m_camera.clear();
         m_cameraError.clear();
         m_lastSurfaceHit = SurfaceHit();
+        updateModelMatrix();
         update();
         return;
     }
 
     clearMarkerPresentation();
     m_mesh = std::move(mesh);
+    m_sceneAlignment.reset();
     m_hasMesh = true;
     m_meshPendingUpload = true;
     m_meshError.clear();
@@ -67,7 +70,8 @@ void ModelViewerWidget::setMesh(MeshData mesh)
     m_lastSurfaceHit = SurfaceHit();
     m_frameTimer.start();
     m_camera.clear();
-    if (!m_camera.fitToBounds(m_mesh.boundingBox)) {
+    updateModelMatrix();
+    if (!m_camera.fitToBounds(alignedMeshBounds())) {
         m_cameraError = QStringLiteral(
             "camera fit requires a finite, non-degenerate MeshData bounding box");
     } else {
@@ -96,6 +100,7 @@ void ModelViewerWidget::clearMesh()
     }
 
     m_mesh = MeshData();
+    m_sceneAlignment.reset();
     m_hasMesh = false;
     m_meshPendingUpload = false;
     m_meshError.clear();
@@ -110,13 +115,39 @@ void ModelViewerWidget::clearMesh()
     update();
 }
 
+void ModelViewerWidget::setSceneAlignment(const SceneAlignmentTransform& alignment)
+{
+    m_sceneAlignment = alignment;
+    if (!m_sceneAlignment.isValid()) {
+        m_sceneAlignment.reset();
+    }
+    updateModelMatrix();
+    update();
+}
+
+const SceneAlignmentTransform& ModelViewerWidget::sceneAlignment() const
+{
+    return m_sceneAlignment;
+}
+
+void ModelViewerWidget::setOrbitSensitivity(float sensitivity)
+{
+    m_camera.setOrbitSensitivity(sensitivity);
+}
+
+void ModelViewerWidget::setMarkerSize(float scale)
+{
+    m_markerRenderer.setPointSizeScale(scale);
+    update();
+}
+
 bool ModelViewerWidget::fitToView()
 {
     if (!m_hasMesh) {
         return false;
     }
     m_camera.clear();
-    const bool fitted = m_camera.fitToBounds(m_mesh.boundingBox);
+    const bool fitted = m_camera.fitToBounds(alignedMeshBounds());
     m_cameraError = fitted
         ? QString()
         : QStringLiteral("camera fit requires a finite, non-degenerate MeshData bounding box");
@@ -127,6 +158,48 @@ bool ModelViewerWidget::fitToView()
 void ModelViewerWidget::resetView()
 {
     m_camera.resetView();
+    update();
+}
+
+void ModelViewerWidget::setFrontView()
+{
+    m_camera.setFrontView();
+    update();
+}
+
+void ModelViewerWidget::setBackView()
+{
+    m_camera.setBackView();
+    update();
+}
+
+void ModelViewerWidget::setLeftView()
+{
+    m_camera.setLeftView();
+    update();
+}
+
+void ModelViewerWidget::setRightView()
+{
+    m_camera.setRightView();
+    update();
+}
+
+void ModelViewerWidget::setTopView()
+{
+    m_camera.setTopView();
+    update();
+}
+
+void ModelViewerWidget::setBottomView()
+{
+    m_camera.setBottomView();
+    update();
+}
+
+void ModelViewerWidget::setIsometricView()
+{
+    m_camera.setIsometricView();
     update();
 }
 
@@ -152,7 +225,15 @@ SurfaceHit ModelViewerWidget::pickAt(const QPointF& logicalPosition)
                 &failureReason)) {
             result.failureReason = failureReason;
         } else {
-            result = MeshPicking::pick(m_mesh, ray);
+            Ray rawRay;
+            if (!MeshPicking::transformRay(
+                    ray,
+                    m_sceneAlignment.inverseMatrix(m_mesh.boundingBox.center()),
+                    rawRay)) {
+                result.failureReason = SurfaceHitFailureReason::InvalidCamera;
+            } else {
+                result = MeshPicking::pick(m_mesh, rawRay);
+            }
         }
     }
 
@@ -396,10 +477,12 @@ void ModelViewerWidget::mousePressEvent(QMouseEvent* event)
 
     m_lastMousePosition = event->position();
     if (event->button() == Qt::LeftButton) {
-        m_orbiting = true;
-        m_panning = false;
-        m_leftPressActive = true;
+        const bool shiftPan = event->modifiers().testFlag(Qt::ShiftModifier);
+        m_orbiting = !shiftPan;
+        m_panning = shiftPan;
+        m_leftPressActive = !shiftPan;
         m_leftDragStarted = false;
+        m_orbitAxis = OrbitAxis::None;
         m_leftPressPosition = event->position();
         setFocus(Qt::MouseFocusReason);
         event->accept();
@@ -408,6 +491,7 @@ void ModelViewerWidget::mousePressEvent(QMouseEvent* event)
         m_orbiting = false;
         m_leftPressActive = false;
         m_leftDragStarted = false;
+        m_orbitAxis = OrbitAxis::None;
         setFocus(Qt::MouseFocusReason);
         event->accept();
     } else {
@@ -434,10 +518,15 @@ void ModelViewerWidget::mouseMoveEvent(QMouseEvent* event)
         }
         m_leftDragStarted = true;
         const QPointF dragDelta = currentPosition - m_leftPressPosition;
+        m_orbitAxis = std::abs(dragDelta.x()) >= std::abs(dragDelta.y())
+            ? OrbitAxis::Yaw
+            : OrbitAxis::Pitch;
         m_lastMousePosition = currentPosition;
-        m_camera.orbit(
-            static_cast<float>(dragDelta.x()),
-            static_cast<float>(dragDelta.y()));
+        if (m_orbitAxis == OrbitAxis::Yaw) {
+            m_camera.orbit(static_cast<float>(dragDelta.x()), 0.0f);
+        } else {
+            m_camera.orbit(0.0f, static_cast<float>(dragDelta.y()));
+        }
         update();
         event->accept();
         return;
@@ -446,7 +535,11 @@ void ModelViewerWidget::mouseMoveEvent(QMouseEvent* event)
     const QPointF delta = currentPosition - m_lastMousePosition;
     m_lastMousePosition = currentPosition;
     if (m_orbiting) {
-        m_camera.orbit(static_cast<float>(delta.x()), static_cast<float>(delta.y()));
+        if (m_orbitAxis == OrbitAxis::Yaw) {
+            m_camera.orbit(static_cast<float>(delta.x()), 0.0f);
+        } else if (m_orbitAxis == OrbitAxis::Pitch) {
+            m_camera.orbit(0.0f, static_cast<float>(delta.y()));
+        }
     } else if (m_panning) {
         m_camera.pan(static_cast<float>(delta.x()), static_cast<float>(delta.y()));
     }
@@ -459,8 +552,10 @@ void ModelViewerWidget::mouseReleaseEvent(QMouseEvent* event)
     if (event->button() == Qt::LeftButton) {
         const bool shouldPick = m_leftPressActive && !m_leftDragStarted;
         m_orbiting = false;
+        m_panning = false;
         m_leftPressActive = false;
         m_leftDragStarted = false;
+        m_orbitAxis = OrbitAxis::None;
         if (shouldPick) {
             const std::optional<QString> markerId = markerIdAt(event->position());
             if (markerId.has_value()) {
@@ -473,6 +568,7 @@ void ModelViewerWidget::mouseReleaseEvent(QMouseEvent* event)
         event->accept();
     } else if (event->button() == Qt::MiddleButton) {
         m_panning = false;
+        m_orbitAxis = OrbitAxis::None;
         event->accept();
     } else {
         QOpenGLWidget::mouseReleaseEvent(event);
@@ -520,10 +616,28 @@ void ModelViewerWidget::uploadPendingMesh()
     m_meshPendingUpload = false;
 }
 
+void ModelViewerWidget::updateModelMatrix()
+{
+    if (!m_hasMesh || m_mesh.boundingBox.isEmpty()) {
+        m_model.setToIdentity();
+        m_normalMatrix.setToIdentity();
+        return;
+    }
+
+    m_model = m_sceneAlignment.matrix(m_mesh.boundingBox.center());
+    m_normalMatrix = m_model.normalMatrix();
+}
+
+BoundingBox ModelViewerWidget::alignedMeshBounds() const
+{
+    return m_sceneAlignment.transformBounds(m_mesh.boundingBox);
+}
+
 std::optional<QString> ModelViewerWidget::markerIdAt(const QPointF& logicalPosition) const
 {
     return MarkerHitTesting::hitTest(m_markers,
                                      m_camera,
+                                     m_model,
                                      logicalPosition,
                                      size(),
                                      devicePixelRatioF(),

@@ -10,14 +10,42 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
 option(VISION3DINSPECTOR_BUILD_TESTS "Build Qt Test targets" ON)
+option(VISION3DINSPECTOR_BUILD_GEOMETRY_WORKER
+       "Build the Open3D and meshoptimizer geometry worker when local SDKs are available"
+       ON)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Widgets OpenGL OpenGLWidgets Network SerialBus)
+set(VISION3D_OPEN3D_ROOT
+    "${CMAKE_CURRENT_LIST_DIR}/../third_party/open3d/0.20.0"
+    CACHE PATH "Open3D 0.20.0 C++ package root")
+set(VISION3D_MESHOPTIMIZER_ROOT
+    "${CMAKE_CURRENT_LIST_DIR}/../third_party/meshoptimizer/1.3"
+    CACHE PATH "meshoptimizer source root")
+
+find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Widgets OpenGL OpenGLWidgets Network SerialBus Qml Quick QuickWidgets QuickControls2)
 find_package(OpenCV 4.14.0 REQUIRED COMPONENTS core imgproc imgcodecs)
+
+set(VISION3D_OPEN3D_TARGET "")
+if(VISION3DINSPECTOR_BUILD_GEOMETRY_WORKER
+   AND EXISTS "${VISION3D_OPEN3D_ROOT}/CMake/Open3DConfig.cmake")
+    list(APPEND CMAKE_PREFIX_PATH "${VISION3D_OPEN3D_ROOT}/CMake")
+    find_package(Open3D CONFIG QUIET)
+    if(TARGET Open3D::Open3D)
+        set(VISION3D_OPEN3D_TARGET Open3D::Open3D)
+    elseif(TARGET Open3D)
+        set(VISION3D_OPEN3D_TARGET Open3D)
+    endif()
+endif()
 
 set(VISION3DINSPECTOR_SOURCES
     src/main.cpp
     src/app/MainWindow.cpp
     src/app/MainWindow.h
+    src/app/AppPreferences.cpp
+    src/app/AppPreferences.h
+    src/app/AppShellViewModel.cpp
+    src/app/AppShellViewModel.h
+    resources/branding.qrc
+    src/qml/qml.qrc
     src/core/assets/AssetRecord.cpp
     src/core/assets/AssetRecord.h
     src/core/assets/ThumbnailCache.cpp
@@ -61,14 +89,30 @@ set(VISION3DINSPECTOR_SOURCES
     src/core/mesh/PlyMeshLoader.h
     src/core/viewer/CameraController.cpp
     src/core/viewer/CameraController.h
+    src/core/viewer/SceneAlignmentTransform.h
     src/core/reconstruction/ReconstructionArtifactValidator.cpp
     src/core/reconstruction/ReconstructionArtifactValidator.h
+    src/core/reconstruction/CameraTrajectoryValidator.cpp
+    src/core/reconstruction/CameraTrajectoryValidator.h
     src/core/reconstruction/ReconstructionController.cpp
     src/core/reconstruction/ReconstructionController.h
     src/core/reconstruction/ReconstructionTask.cpp
     src/core/reconstruction/ReconstructionTask.h
     src/core/reconstruction/ReconstructionWorkspace.cpp
     src/core/reconstruction/ReconstructionWorkspace.h
+    src/core/video/FrameQualityAnalyzer.cpp
+    src/core/video/FrameQualityAnalyzer.h
+    src/core/video/FrameSamplingPolicy.cpp
+    src/core/video/FrameSamplingPolicy.h
+    src/core/video/VideoFrameExtractor.cpp
+    src/core/video/VideoFrameExtractor.h
+    src/core/video/VideoInfo.h
+    src/core/video/VideoProbe.cpp
+    src/core/video/VideoProbe.h
+    src/core/video/VideoReconstructionController.cpp
+    src/core/video/VideoReconstructionController.h
+    src/core/video/VideoToolBackend.cpp
+    src/core/video/VideoToolBackend.h
     src/backend/BackendProbeResult.h
     src/backend/ReconstructionBackend.h
     src/backend/ColmapBackend.cpp
@@ -93,6 +137,8 @@ set(VISION3DINSPECTOR_SOURCES
     src/widgets/LogPanel.h
     src/widgets/ProjectPanel.cpp
     src/widgets/ProjectPanel.h
+    src/widgets/ProductDialogStyle.cpp
+    src/widgets/ProductDialogStyle.h
     src/widgets/ReconstructionPanel.cpp
     src/widgets/ReconstructionPanel.h
     src/widgets/VisualGaugeReadingDialog.cpp
@@ -112,7 +158,12 @@ list(REMOVE_ITEM VISION3DINSPECTOR_COMMON_SOURCES
     src/main.cpp
 )
 
+add_subdirectory(src/core/ai)
 add_executable(Vision3DInspector WIN32 ${VISION3DINSPECTOR_SOURCES})
+
+if(WIN32)
+    target_sources(Vision3DInspector PRIVATE resources/Vision3DInspector.rc)
+endif()
 
 target_compile_features(Vision3DInspector PRIVATE cxx_std_17)
 target_include_directories(Vision3DInspector PRIVATE
@@ -120,6 +171,7 @@ target_include_directories(Vision3DInspector PRIVATE
     ${OpenCV_INCLUDE_DIRS}
 )
 target_link_libraries(Vision3DInspector PRIVATE
+    Vision3DAiJobClient
     Qt6::Core
     Qt6::Gui
     Qt6::Widgets
@@ -127,6 +179,10 @@ target_link_libraries(Vision3DInspector PRIVATE
     Qt6::OpenGLWidgets
     Qt6::Network
     Qt6::SerialBus
+    Qt6::Qml
+    Qt6::Quick
+    Qt6::QuickWidgets
+    Qt6::QuickControls2
     ${OpenCV_LIBS}
 )
 
@@ -140,7 +196,10 @@ if(BUILD_TESTING AND VISION3DINSPECTOR_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 
-qt_finalize_executable(Vision3DInspector)
+# The application uses ordinary QRC-loaded QQuickWidget files.  Avoid the
+# deploy-time qmlimportscanner here because the bundled scanner cannot decode
+# this repository's Chinese source path on Windows; runtime imports are still
+# resolved by Qt's QML engine from the compiled resource system.
 
 add_executable(Vision3DMainWindowSmoke
     src/smoke/MainWindowSmokeMain.cpp
@@ -162,6 +221,10 @@ target_link_libraries(Vision3DMainWindowSmoke PRIVATE
     Qt6::OpenGLWidgets
     Qt6::Network
     Qt6::SerialBus
+    Qt6::Qml
+    Qt6::Quick
+    Qt6::QuickWidgets
+    Qt6::QuickControls2
     ${OpenCV_LIBS}
 )
 
@@ -169,7 +232,6 @@ if(MSVC)
     target_compile_options(Vision3DMainWindowSmoke PRIVATE /W4 /permissive- /FS)
 endif()
 
-qt_finalize_executable(Vision3DMainWindowSmoke)
 
 function(copy_opencv_runtime target_name)
     if(TARGET opencv_world)
@@ -194,3 +256,43 @@ endfunction()
 
 copy_opencv_runtime(Vision3DInspector)
 copy_opencv_runtime(Vision3DMainWindowSmoke)
+
+if(VISION3DINSPECTOR_BUILD_GEOMETRY_WORKER
+   AND VISION3D_OPEN3D_TARGET
+   AND EXISTS "${VISION3D_MESHOPTIMIZER_ROOT}/CMakeLists.txt")
+    set(MESHOPT_BUILD_DEMO OFF CACHE BOOL "" FORCE)
+    set(MESHOPT_BUILD_GLTFPACK OFF CACHE BOOL "" FORCE)
+    set(MESHOPT_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    set(MESHOPT_INSTALL OFF CACHE BOOL "" FORCE)
+    add_subdirectory("${VISION3D_MESHOPTIMIZER_ROOT}"
+                     "${CMAKE_BINARY_DIR}/meshoptimizer-build"
+                     EXCLUDE_FROM_ALL)
+
+    if(TARGET meshoptimizer)
+        add_executable(Vision3DGeometryWorker
+            src/geometry_worker/main.cpp
+        )
+        target_compile_features(Vision3DGeometryWorker PRIVATE cxx_std_17)
+        target_link_libraries(Vision3DGeometryWorker PRIVATE
+            ${VISION3D_OPEN3D_TARGET}
+            meshoptimizer
+        )
+        if(MSVC)
+            target_compile_options(Vision3DGeometryWorker PRIVATE /W4 /permissive- /FS)
+        endif()
+
+        file(GLOB VISION3D_OPEN3D_RUNTIME_DLLS
+             CONFIGURE_DEPENDS "${VISION3D_OPEN3D_ROOT}/bin/*.dll")
+        foreach(VISION3D_OPEN3D_DLL IN LISTS VISION3D_OPEN3D_RUNTIME_DLLS)
+            add_custom_command(TARGET Vision3DGeometryWorker POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${VISION3D_OPEN3D_DLL}"
+                    "$<TARGET_FILE_DIR:Vision3DGeometryWorker>"
+                VERBATIM
+            )
+        endforeach()
+    endif()
+elseif(VISION3DINSPECTOR_BUILD_GEOMETRY_WORKER)
+    message(WARNING
+        "Geometry worker disabled because the local Open3D 0.20.0 package or meshoptimizer source was not found.")
+endif()

@@ -4,6 +4,7 @@
 #include <QJsonObject>
 #include <QMetaType>
 #include <QString>
+#include <QStringList>
 
 #include <optional>
 
@@ -31,6 +32,7 @@ enum class ReconstructionStage
     DenseStereo,
     StereoFusion,
     Meshing,
+    ModelOptimization,
     Completed,
 };
 
@@ -58,8 +60,16 @@ struct ReconstructionTask
     int exitCode = -1;
 
     int inputImageCount = 0;
+    QString inputType = QStringLiteral("images");
+    QString inputSourcePath;
+    int rawFrameCount = 0;
+    int blurRejectedFrameCount = 0;
+    int duplicateRejectedFrameCount = 0;
+    int coverageRecoveredFrameCount = 0;
     int registeredImageCount = 0;
     double registrationRatio = 0.0;
+    int sparseModelCount = 0;
+    QStringList trajectoryWarnings;
     QString primaryModelRelativePath;
     QString fusedPointCloudRelativePath;
     QString meshRelativePath;

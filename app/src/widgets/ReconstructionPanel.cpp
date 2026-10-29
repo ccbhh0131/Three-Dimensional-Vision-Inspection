@@ -34,6 +34,8 @@ QString stageText(ReconstructionStage stage)
         return QStringLiteral("点云融合");
     case ReconstructionStage::Meshing:
         return QStringLiteral("网格生成");
+    case ReconstructionStage::ModelOptimization:
+        return QStringLiteral("模型优化");
     case ReconstructionStage::Completed:
         return QStringLiteral("已完成");
     case ReconstructionStage::None:
@@ -72,7 +74,7 @@ ReconstructionPanel::ReconstructionPanel(QWidget* parent)
     , m_gpuLabel(new QLabel(QStringLiteral("未检测"), this))
     , m_inputLabel(new QLabel(QStringLiteral("0"), this))
     , m_stageLabel(new QLabel(QStringLiteral("-"), this))
-    , m_progressLabel(new QLabel(QStringLiteral("0/7"), this))
+    , m_progressLabel(new QLabel(QStringLiteral("0/8"), this))
     , m_registeredLabel(new QLabel(QStringLiteral("-"), this))
     , m_jobLabel(new QLabel(QStringLiteral("-"), this))
     , m_meshLabel(new QLabel(QStringLiteral("-"), this))
@@ -325,7 +327,7 @@ void ReconstructionPanel::setTask(const ReconstructionTask& task)
     m_stateLabel->setText(stateText(task.state));
     m_stageLabel->setText(stageText(task.stage));
     const int completed = ReconstructionController::completedStageCount(task.stage);
-    m_progressLabel->setText(QStringLiteral("%1/7").arg(completed));
+    m_progressLabel->setText(QStringLiteral("%1/8").arg(completed));
     m_registeredLabel->setText(task.registeredImageCount > 0
                                    ? QStringLiteral("%1/%2")
                                          .arg(task.registeredImageCount)

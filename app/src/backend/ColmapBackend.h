@@ -13,6 +13,12 @@ struct ReconstructionConfig
     bool useGpuFeature = true;
     bool useGpuMatching = true;
     int gpuIndex = 0;
+    QString imageDirectory = QStringLiteral("input");
+    bool useSequentialMatcher = false;
+    int sequentialMatcherOverlap = 10;
+    bool sequentialQuadraticOverlap = true;
+    bool guidedMatching = false;
+    bool useTransitiveMatcher = false;
 };
 
 struct ProcessCommand
@@ -50,10 +56,12 @@ public:
                                           const QString& jobRoot,
                                           const ReconstructionConfig& config) const;
     ProcessCommand sparseMappingCommand(const QString& backendRoot,
-                                        const QString& jobRoot) const;
+                                        const QString& jobRoot,
+                                        const ReconstructionConfig& config = ReconstructionConfig()) const;
     ProcessCommand undistortionCommand(const QString& backendRoot,
                                        const QString& jobRoot,
-                                       const QString& primaryModelRelativePath) const;
+                                       const QString& primaryModelRelativePath,
+                                       const QString& imageDirectory = QStringLiteral("input")) const;
     ProcessCommand patchMatchCommand(const QString& backendRoot,
                                      const QString& jobRoot,
                                      const ReconstructionConfig& config) const;

@@ -1,0 +1,10 @@
+// Runtime state is outside shared folders; exclude Worker/atomic-write leftovers.
+/.worker.lock
+*.part
+*.tmp
+*.log
+**/response.json.*
+**/request.json.*
+**/refined-mesh.ply.*
+**/final-mesh.ply.*
+**/READY.*

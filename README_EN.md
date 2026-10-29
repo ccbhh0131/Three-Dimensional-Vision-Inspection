@@ -1,188 +1,107 @@
 # Three-Dimensional Vision Inspection Platform
 
-## A C++/Qt desktop platform for visual inspection and 3D state management of equipment
+## A C++ / Qt desktop workspace for 3D reconstruction and equipment inspection
 
 [中文](README.md) | English
 
-This is a C++17, Qt Widgets, OpenGL and OpenCV desktop engineering project. It connects multi-view images, an external COLMAP reconstruction, 3D device markers, gauge assets, visual readings and live status into one traceable workflow.
+Connect photos or video, COLMAP reconstruction, 3D device markers, gauge assets, reviewed visual readings and live status in one desktop workspace.
 
-`v0.3.0` is the **Gauge Inspection & Realtime Monitoring** release. It publishes the formal GaugeAsset domain, manual-ROI visual gauge reading, InspectionRecord, status rules, Mock Sensor and read-only Modbus TCP data-source implementations, while preserving the `v0.2.0` 3D viewer, camera interaction, mesh picking and DeviceMarker capabilities.
+**Development update: 2026-10-29.** The current shell uses Qt Quick / QML with the existing Qt Widgets / OpenGL viewer embedded inside it. The project retains version `0.3.0`; this source and documentation update does not create a new stable release.
 
-## Product workflow
+## Implemented capabilities
 
-```mermaid
-flowchart LR
-    A[Images] --> B[COLMAP external backend]
-    B --> C[3D Viewer]
-    C --> D[DeviceMarker]
-    D --> E[GaugeAsset]
+| Area | Scope |
+| --- | --- |
+| Workspace | Project creation/opening, image import, SHA-256 deduplication, thumbnails and JSON persistence |
+| Reconstruction | Photo input; video probing, sampling, blur/duplicate filtering and frame preview; shared COLMAP pipeline |
+| Video matching | Contiguous neighbours, cross-time pairs and transitive matching; registration and trajectory diagnostics |
+| Continuation | Resume a cancelled/interrupted video task at the dense stage after checking saved artifacts; retain completed depth maps |
+| 3D viewer | Orbit, pan, zoom, view reset, surface picking and device markers |
+| Gauge inspection | GaugeAsset, manual ROI, OpenCV pointer geometry, confirmed readings and InspectionRecord history |
+| Realtime | Mock Sensor, read-only Modbus TCP and status-linked marker colors |
+| Settings | Project preferences, viewer settings and development engine configuration |
 
-    F[Gauge image] --> G[Manual ROI]
-    G --> H[OpenCV pointer geometry]
-    H --> I[GaugeProfile]
-    I --> J[Visual Reading]
-    J --> K[InspectionRecord]
+The task protocol and deployment scripts in [app/local_ai](app/local_ai/README.md) are experimental extensions. Their presence does not establish general AI mesh-repair capability.
 
-    L[Mock / Modbus TCP read-only] --> M[GaugeDataSource]
-    M --> N[GaugeLiveState]
-    N --> O[GaugeStatusEvaluator]
-    O --> P[3D Marker Status]
-```
+## Current interface
 
-## v0.3.0 scope
+These screenshots were captured as full-window views from the actual client on 2026-10-29. They show the initial state without a loaded project; they are not evidence of reconstruction quality, physical device connectivity or automated gauge-reading accuracy.
 
-### GaugeAsset and 3D device binding
+### Project overview
 
-- `GaugeAsset` binds to the source-world position of an existing `DeviceMarker`.
-- The example gauge is `P01 Inlet Pressure Gauge`, with a `0.0–2.5 MPa` range.
-- The domain supports `Manual`, `Visual` and `Sensor` data sources.
-- Gauge assets, status rules, data-source bindings and inspection records are persisted in the project JSON; live samples remain runtime state until explicitly recorded.
+![Current overview without a loaded project](docs/images/ui-20261029-overview.png)
 
-### Manual-ROI visual gauge reading
+### Reconstruction tasks
 
-Visual reading is an explicit human-confirmation workflow, not AI, YOLO or fully automatic recognition:
+![Current photo/video reconstruction entry points](docs/images/ui-20261029-reconstruction.png)
 
-1. Select a project image or an external image.
-2. Draw the ROI manually.
-3. Use OpenCV circle/pointer geometry to obtain a candidate reading.
-4. Map pointer geometry to an engineering value with multi-point `GaugeProfile` interpolation.
-5. Review the overlay and confirm the reading.
+### Visual inspection
 
-Visual inspection records retain the original `ImageAsset` binding together with the image, ROI, angle, reading and source information.
+![Current visual inspection workspace without a selected gauge](docs/images/ui-20261029-inspection.png)
 
-### InspectionRecord and history
+Earlier Widgets screenshots remain in `docs/images/` as historical material and are no longer presented here as the current interface.
 
-- Manual, visual and sensor readings share the `InspectionRecord` representation.
-- The client can display gauge history and the current source, timestamp and status.
-- Live samples are not written to the project file automatically; recording the current value explicitly creates a persisted inspection record.
+## Video-to-model workflow
 
-### GaugeStatus and 3D status visualization
+1. Create/open a project and import photos or video. Import prompts for project creation when necessary.
+2. Extract and review video frames before starting reconstruction. Automatic continuation is optional and disabled by default.
+3. Video uses sequential matching supplemented by cross-time and transitive matching; photos use exhaustive matching.
+4. A video primary-model registration ratio below 50% stops downstream dense reconstruction. The page displays the failure reason.
+5. Dense stereo, fusion and meshing produce the viewer input. A post-processing failure can fall back to the raw mesh with the reason recorded.
+6. Reopen the same project and choose “继续三维重建” to continue a video task cancelled at the dense stage. Arbitrary-stage resume is not implemented.
 
-- Status rules produce `Unknown`, `Normal`, `Warning` and `Alarm`.
-- 3D markers use gray, green, yellow and red respectively.
-- A selected marker remains visually distinguishable and is not hidden by the status color.
+## Build and runtime
 
-### Realtime data sources
+Requirements:
 
-- `GaugeDataSource`, `GaugeSample`, `GaugeLiveState` and `RealtimeMonitoringController` separate acquisition, live state and history.
-- `MockSensorDataSource` supports local demonstrations and client smoke runs.
-- `ModbusTcpGaugeDataSource` is a generic **read-only** Qt SerialBus adapter. It issues read requests only and exposes no PLC control or write API.
-- Modbus binding supports Holding/Input Registers, `UInt16`, `Int16`, `UInt32`, `Int32`, `Float32`, `ABCD/CDAB` word order, scale/offset and polling interval.
-- The Modbus source was validated in a local `QModbusTcpServer` loopback environment. It was not validated against a real PLC.
+- Windows x64, Visual Studio 2022 / MSVC, CMake 3.21+, C++17.
+- Qt 6.5+: Core, Gui, Widgets, OpenGL, OpenGLWidgets, Network, SerialBus, SerialPort, Qml, Quick, QuickWidgets and QuickControls2; Qt Test for test targets.
+- OpenCV 4.14+: `core`, `imgproc`, `imgcodecs`.
+- External COLMAP 3.11.1 Windows CUDA, checked at runtime; external FFmpeg and ffprobe for video.
+- Optional Open3D and meshoptimizer for geometry post-processing, subject to CMake discovery.
 
-## Runtime screenshots
-
-All images below are real captures from the Qt client. The new v0.3.0 captures were cropped to remove local paths and retain only the functional UI. The realtime capture is explicitly a Mock Sensor demonstration, not a Modbus client screenshot.
-
-### OpenGL 3D Viewer
-
-![OpenGL 3D Viewer](docs/images/viewer_overview.png)
-
-### Device Marker
-
-![Device Marker](docs/images/device_marker.png)
-
-### Marker Interaction
-
-![Marker Interaction](docs/images/viewer_interaction.png)
-
-### Manual ROI visual gauge reading
-
-![Manual ROI visual gauge reading](docs/images/visual_gauge_reading.png)
-
-### Inspection history and persisted gauge state
-
-![Inspection history and persisted gauge state](docs/images/inspection_history.png)
-
-### Alarm marker state
-
-![Alarm marker state](docs/images/gauge_status_alarm.png)
-
-### Realtime monitoring with Mock Sensor
-
-![Realtime monitoring with Mock Sensor](docs/images/realtime_monitoring.png)
-
-## Core implementation
-
-### C++ / Qt / OpenCV
-
-- C++17 and CMake 3.21+.
-- Qt 6 Widgets, OpenGL, OpenGLWidgets, Network, SerialBus and Qt Test.
-- Qt SerialBus requires the matching Qt SerialPort dependency provided by the selected distribution; no Qt binaries are shipped here.
-- OpenCV 4.x `core`, `imgproc` and `imgcodecs` modules.
-- OpenGL 3.3 Core, GLSL 330, VAO/VBO/EBO.
-
-### 3D and device domain
-
-- Controlled Binary Little Endian PLY loader and CPU-side `MeshData`.
-- Separate `MeshRenderer` and `MarkerRenderer`; CPU mesh data supports picking while GPU resources render the scene.
-- `CameraController` provides Orbit, Pan, Zoom, Fit To View and Reset View.
-- Triangle picking returns `SurfaceHit` and is currently a click-level CPU brute-force MVP.
-- `DeviceMarker` persists source-world coordinates and reconstruction identity, rather than treating screen coordinates as business data.
-
-### Vision, records and realtime runtime
-
-- `GaugeProfile`, `VisualGaugeReader` and the manual-ROI dialog form the visual reading path.
-- `InspectionRecord` unifies Manual, Visual and Sensor records and retains the original `ImageAsset` binding for visual records.
-- `GaugeStatusRule` / `GaugeStatusEvaluator` convert readings or live samples into status values.
-- `GaugeLiveState` holds the current live sample and connection state; only an explicit snapshot enters persisted history.
-- COLMAP remains an external reconstruction backend and is not distributed here.
-
-## Project structure
-
-```text
-app/
-├─ src/core/assets/       # Image assets and thumbnails
-├─ src/core/device/       # DeviceMarker, GaugeAsset, GaugeProfile and status rules
-├─ src/core/inspection/   # InspectionRecord
-├─ src/core/realtime/     # Mock/Modbus sources, live state and controller
-├─ src/core/vision/       # VisualGaugeReader
-├─ src/core/mesh/         # MeshData and PLY loading
-├─ src/core/geometry/     # Ray, picking and SurfaceHit
-├─ src/core/viewer/       # CameraController
-├─ src/render/            # MeshRenderer and MarkerRenderer
-├─ src/widgets/           # Qt Widgets, gauge dialogs and 3D viewer
-└─ tests/                 # Qt Test targets
-docs/images/              # Real client screenshots
-```
-
-## Build
-
-### Requirements
-
-- Windows 10 or newer.
-- Visual Studio 2022 / MSVC.
-- Qt 6.5 or a compatible Qt 6 distribution providing at least Core, Gui, Widgets, OpenGL, OpenGLWidgets, Network, SerialBus, SerialPort and Test.
-- OpenCV 4.x. CMake must be able to find the directory containing `OpenCVConfig.cmake` through `OpenCV_DIR`; the project uses `core`, `imgproc` and `imgcodecs`.
-- CMake 3.21+.
-- COLMAP as an optional external reconstruction backend; it is not distributed here.
-
-### Configure, build and test
-
-Run from the repository root. The placeholders below refer to dependencies installed on the user's machine and are not fixed project paths:
+Run from the repository root and replace the dependency placeholders:
 
 ```powershell
-cmake -S app -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="<path-to-Qt-6>" -DOpenCV_DIR="<path-to-opencv-config-directory>" -DBUILD_TESTING=ON -DVISION3DINSPECTOR_BUILD_TESTS=ON
-cmake --build build --config Release --target ALL_BUILD
+cmake -S app -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="<Qt-directory>" -DOpenCV_DIR="<OpenCV-config-directory>" -DBUILD_TESTING=ON -DVISION3DINSPECTOR_BUILD_TESTS=ON
+cmake --build build --config Release
+```
+
+To run automated tests:
+
+```powershell
 ctest --test-dir build -C Release --output-on-failure
 ```
 
-For a direct CTest run, make sure the matching Qt `bin` directory and OpenCV runtime `bin` directory are available on the current process `PATH`, or run from a development environment that has configured the Qt runtime. The maintainer release validation uses Qt 6.5.3 / MSVC and OpenCV 4.14, and the public repository actually passed **20/20 CTest tests**. Qt/OpenCV installers, runtime DLLs, COLMAP binaries, datasets, PLY meshes, model weights and reconstruction outputs are not committed.
+Use Qt/OpenCV DLLs and QML plugins matching the build configuration. Keep personal dependency paths in an untracked `CMakeUserPresets.json` or the current terminal environment. This documentation synchronization does not rerun the build or tests; historical pass counts are not claimed for the new commit.
 
-## Current limitations and honest boundaries
+External tools:
 
-- The current test model may contain mesh holes; 3D quality depends on capture and COLMAP reconstruction quality.
-- Mesh picking remains click-level CPU brute-force; BVH acceleration is not implemented.
-- Visual gauge reading requires a manual ROI and confirmation. It is an OpenCV pointer-geometry MVP, not an AI/YOLO/fully automatic gauge-reading system.
-- A small tuned development regression set is not an independent validation benchmark; it is not used to claim general, 100% or industrial metrology accuracy.
-- The Modbus TCP adapter is read-only and was validated only with a local Qt `QModbusTcpServer` loopback; real PLCs, PLC write/control, Siemens/S7 and MQTT are outside this release.
-- Without physical-scale calibration, world coordinates are reconstruction coordinates, not millimeter-accurate physical coordinates.
-- The UI remains Qt Widgets; QML modernization, an installer and commercial deployment are outside this release.
+- FFmpeg: `tools/ffmpeg/bin/ffmpeg.exe` and `ffprobe.exe` under the application directory, or `tools/ffmpeg/bin/` under the repository root during development. Discovery does not modify system PATH.
+- COLMAP: prefer `runtime/reconstruction/engine/` under the application directory; a development setting may point to a directory containing `COLMAP.bat` and `bin/colmap.exe`.
+- No dependency binaries are bundled. Prepare each distribution and its applicable licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-The 3D module provides a foundation for spatial management, position binding and status visualization. Gauge and realtime results should be used within the validation boundaries stated above.
+## Source layout
 
-## Public boundary and license
+- `app/src/app/`, `app/src/qml/`: desktop shell, view model, pages, preferences and theme.
+- `app/src/core/video/`, `app/src/core/reconstruction/`: probing, extraction, filtering, tasks and artifact validation.
+- `app/src/core/device/`, `vision/`, `realtime/`: markers, gauges, reviewed readings and data sources.
+- `app/src/render/`, `widgets/`: OpenGL rendering, embedded viewer and dialogs.
+- `app/src/geometry_worker/`: geometry post-processing process.
+- `app/local_ai/`: experimental local task worker.
+- `app/tests/`, `app/cmake/`: test sources and build helpers.
+- `docs/images/`: actual client screenshots.
 
-This repository publishes the formal C++/Qt source, necessary public technical notes and real client screenshots only. It does not contain personal paths, tokens, passwords, credentials, API keys, datasets, PLY meshes, training weights, caches, build artifacts or third-party binary packages.
+## Limitations
 
-The project is licensed under Apache License 2.0; see [LICENSE](LICENSE). Third-party dependency and distribution boundaries are documented in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+- Completion or high registration does not guarantee a complete/smooth model or industrial measurement accuracy. Overlap, texture, reflections and motion blur affect results.
+- Relative blur thresholds can miss uniformly blurred input; review the frame preview manually.
+- Progress is currently approximate and may remain at 92% during later computation. Check the current stage and task logs.
+- Gauge reading requires manual ROI and confirmation; general AI/YOLO automatic-reading accuracy is not established.
+- Modbus is read-only. Historical validation used a local loopback server, not a physical PLC.
+- Reconstruction coordinates are not millimetre-accurate physical coordinates without scale calibration.
+- Installers, dependency runtimes, private projects, input media, meshes, weights, caches and reconstruction outputs are excluded.
+
+## License
+
+[Apache License 2.0](LICENSE). Dependency and redistribution boundaries: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

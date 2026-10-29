@@ -1,5 +1,8 @@
 #include "core/reconstruction/ReconstructionController.h"
 
+#include "core/reconstruction/CameraTrajectoryValidator.h"
+
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
@@ -20,6 +23,8 @@ const QList<ReconstructionController::StageDefinition>& stageDefinitions()
         {ReconstructionStage::DenseStereo, QStringLiteral("A5_patchmatch.log")},
         {ReconstructionStage::StereoFusion, QStringLiteral("A6_fusion.log")},
         {ReconstructionStage::Meshing, QStringLiteral("A7_meshing.log")},
+        {ReconstructionStage::ModelOptimization,
+         QStringLiteral("A8_model_optimization.log")},
     };
     return definitions;
 }
@@ -102,6 +107,7 @@ bool ReconstructionController::validateStartPreconditions(const QString& backend
 
 bool ReconstructionController::start(const QString& backendRoot, QString* error)
 {
+    m_resumeStageIndex = 0;
     if (error != nullptr) {
         error->clear();
     }
@@ -111,6 +117,8 @@ bool ReconstructionController::start(const QString& backendRoot, QString* error)
     }
 
     m_backendRoot = QDir(backendRoot).absolutePath();
+    m_config = ReconstructionConfig();
+    m_reconstructionInput = ReconstructionInput();
     m_assets = assets;
     m_task = ReconstructionTask();
     m_task.taskId = QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -161,6 +169,186 @@ bool ReconstructionController::start(const QString& backendRoot, QString* error)
     return true;
 }
 
+bool ReconstructionController::start(const ReconstructionInput& input,
+                                     const QString& backendRoot,
+                                     QString* error)
+{
+    m_resumeStageIndex = 0;
+    if (input.type == ReconstructionInput::Type::Images) {
+        return start(backendRoot, error);
+    }
+    if (error != nullptr) {
+        error->clear();
+    }
+    const auto fail = [error](const QString& message) {
+        if (error != nullptr) {
+            *error = message;
+        }
+        return false;
+    };
+    if (isRunning()) {
+        return fail(QStringLiteral("已有 Reconstruction Task 正在运行。"));
+    }
+    if (m_projectManager == nullptr || !m_projectManager->hasProject()) {
+        return fail(QStringLiteral("开始重建前必须打开项目。"));
+    }
+    if (input.imagePaths.size() < 2) {
+        return fail(QStringLiteral("有效视频帧少于 2 张，无法开始重建。"));
+    }
+    if (!QFileInfo(input.sourcePath).isFile()) {
+        return fail(QStringLiteral("原视频文件不存在：%1").arg(input.sourcePath));
+    }
+    const BackendProbeResult backendValidation = m_backend->validateRoot(backendRoot);
+    if (!backendValidation.message.startsWith(QStringLiteral("COLMAP 根目录结构有效"))) {
+        return fail(backendValidation.message);
+    }
+
+    const QString taskId = QFileInfo(input.workingDirectory).fileName();
+    QString workspaceError;
+    if (!ReconstructionWorkspace::openExisting(m_projectManager->projectDirectory(),
+                                               taskId,
+                                               &m_jobPaths,
+                                               &workspaceError)) {
+        return fail(workspaceError);
+    }
+    if (QDir::cleanPath(QFileInfo(input.workingDirectory).canonicalFilePath())
+        != QDir::cleanPath(m_jobPaths.root)) {
+        return fail(QStringLiteral("视频工作目录与当前项目 Job 路径不一致。"));
+    }
+
+    const QString acceptedDirectory = QFileInfo(
+        QDir(m_jobPaths.root).filePath(QStringLiteral("accepted_frames"))).canonicalFilePath();
+    if (acceptedDirectory.isEmpty()) {
+        return fail(QStringLiteral("视频有效帧目录不存在。"));
+    }
+    const QString acceptedPrefix = QDir::fromNativeSeparators(acceptedDirectory)
+                                   + QLatin1Char('/');
+    QList<ReconstructionInputMapping> mappings;
+    mappings.reserve(input.imagePaths.size());
+    for (const QString& imagePath : input.imagePaths) {
+        const QFileInfo imageInfo(imagePath);
+        const QString canonicalImage = imageInfo.canonicalFilePath();
+        const QString normalizedImage = QDir::fromNativeSeparators(canonicalImage);
+        if (!imageInfo.isFile() || imageInfo.isSymLink() || canonicalImage.isEmpty()
+            || !normalizedImage.startsWith(acceptedPrefix, Qt::CaseInsensitive)) {
+            return fail(QStringLiteral("视频有效帧路径无效或位于任务目录之外：%1")
+                            .arg(imagePath));
+        }
+        const QString relative = QDir::fromNativeSeparators(
+            QDir(m_jobPaths.root).relativeFilePath(canonicalImage));
+        mappings.append({imageInfo.completeBaseName(), relative, imageInfo.fileName()});
+    }
+    if (!ReconstructionWorkspace::writeInputManifest(m_jobPaths, mappings, &workspaceError)) {
+        return fail(workspaceError);
+    }
+
+    m_backendRoot = QDir(backendRoot).absolutePath();
+    m_assets.clear();
+    m_reconstructionInput = input;
+    m_config = ReconstructionConfig();
+    m_config.imageDirectory = QStringLiteral("accepted_frames");
+    m_config.useSequentialMatcher = true;
+    m_config.sequentialMatcherOverlap = 30;
+    m_config.sequentialQuadraticOverlap = false;
+    m_config.guidedMatching = true;
+    m_task = ReconstructionTask();
+    m_task.taskId = taskId;
+    m_task.state = ReconstructionState::Preparing;
+    m_task.stage = ReconstructionStage::PreparingInput;
+    m_task.backendName = m_backend->backendName();
+    m_task.createdAt = QDateTime::currentDateTimeUtc();
+    m_task.startedAt = m_task.createdAt;
+    m_task.inputImageCount = input.imagePaths.size();
+    m_task.inputType = QStringLiteral("video");
+    m_task.inputSourcePath = QFileInfo(input.sourcePath).absoluteFilePath();
+    m_task.rawFrameCount = input.rawFrameCount;
+    m_task.blurRejectedFrameCount = input.blurRejectedCount;
+    m_task.duplicateRejectedFrameCount = input.duplicateRejectedCount;
+    m_task.coverageRecoveredFrameCount = input.coverageRecoveredCount;
+    m_task.workspaceRelativePath = m_jobPaths.relativeRoot;
+    if (!persistTask(&workspaceError)) {
+        return fail(workspaceError);
+    }
+    m_totalTimer.start();
+    m_cancelRequested = false;
+    m_processError.clear();
+    m_probeStdout.clear();
+    m_probeStderr.clear();
+    beginProbe();
+    return true;
+}
+
+bool ReconstructionController::resumeVideoDense(const QString& backendRoot, QString* error)
+{
+    const auto fail = [error](const QString& message) {
+        if (error) *error = message;
+        return false;
+    };
+    if (error) error->clear();
+    if (isRunning() || !m_projectManager->hasProject()) {
+        return fail(QStringLiteral("请先打开项目，并等待当前重建任务停止。"));
+    }
+    const auto savedTask = m_projectManager->latestReconstructionTask(error);
+    if (!savedTask || savedTask->inputType != QStringLiteral("video")
+        || savedTask->stage != ReconstructionStage::DenseStereo
+        || (savedTask->state != ReconstructionState::Cancelled
+            && savedTask->state != ReconstructionState::Interrupted)) {
+        return fail(QStringLiteral("当前没有可继续的稠密视频重建任务。"));
+    }
+    const BackendProbeResult validation = m_backend->validateRoot(backendRoot);
+    if (!validation.message.startsWith(QStringLiteral("COLMAP 根目录结构有效"))) {
+        return fail(validation.message);
+    }
+    QString validationError;
+    if (!ReconstructionWorkspace::openExisting(m_projectManager->projectDirectory(),
+                                               savedTask->taskId, &m_jobPaths, &validationError)
+        || !ReconstructionArtifactValidator::validateDatabase(m_jobPaths.databasePath, &validationError)
+        || !ReconstructionArtifactValidator::validateUndistortion(m_jobPaths.denseDirectory, &validationError)) {
+        return fail(validationError);
+    }
+    const SparseModelSelection sparse = ReconstructionArtifactValidator::selectPrimarySparseModel(
+        m_jobPaths.sparseDirectory);
+    if (!sparse.valid || savedTask->registrationRatio < 0.5
+        || sparse.registeredImages != savedTask->registeredImageCount
+        || sparse.relativePath != savedTask->primaryModelRelativePath) {
+        return fail(QStringLiteral("已保存的稀疏模型不完整，无法继续稠密重建。"));
+    }
+    if (!QFileInfo(QDir(m_jobPaths.denseDirectory).filePath(QStringLiteral("stereo/patch-match.cfg"))).isFile()) {
+        return fail(QStringLiteral("缺少已保存的稠密重建配置。"));
+    }
+    m_task = *savedTask;
+    // Keep the cancelled task and its logs as a recoverable record.
+    const QString resumeStamp = QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMdd-HHmmss-zzz"));
+    if (!m_task.save(QDir(m_jobPaths.root).filePath(QStringLiteral("task-before-resume-%1.json").arg(resumeStamp)), error)) {
+        return false;
+    }
+    for (const QString& logName : {QStringLiteral("backend_probe.log"), QStringLiteral("A5_patchmatch.log")}) {
+        const QString logPath = QDir(m_jobPaths.root).filePath(QStringLiteral("logs/") + logName);
+        if (QFileInfo::exists(logPath) && !QFile::copy(logPath, logPath + QStringLiteral(".before-resume-") + resumeStamp)) {
+            return fail(QStringLiteral("无法保留暂停前日志：%1").arg(logName));
+        }
+    }
+    m_backendRoot = QDir(backendRoot).absolutePath();
+    m_config = ReconstructionConfig();
+    m_config.imageDirectory = QStringLiteral("accepted_frames");
+    m_assets.clear();
+    m_reconstructionInput = ReconstructionInput();
+    m_task.errorMessage.clear();
+    m_task.failedStage.clear();
+    m_task.finishedAt = QDateTime();
+    m_task.exitCode = -1;
+    m_task.state = ReconstructionState::Preparing;
+    m_resumeStageIndex = 4; // A5; COLMAP reuses depth/normal maps already on disk.
+    m_totalTimer.start();
+    m_cancelRequested = false;
+    m_processError.clear();
+    m_probeStdout.clear();
+    m_probeStderr.clear();
+    emit logMessage(QStringLiteral("从稠密重建继续，保留相机位姿和已完成的深度图。"), false);
+    beginProbe();
+    return true;
+}
+
 void ReconstructionController::beginProbe()
 {
     m_processPurpose = ProcessPurpose::Probe;
@@ -200,13 +388,62 @@ void ReconstructionController::beginStage(int index)
     appendLog(QStringLiteral("Stage started: %1\n").arg(stageName(definition.stage)));
     setTaskChanged();
 
+    if (definition.stage == ReconstructionStage::ModelOptimization
+        && !QFileInfo(command.program).isFile()) {
+        completeWithRawMeshFallback(
+            QStringLiteral("Vision3DGeometryWorker.exe 不存在: %1").arg(command.program),
+            -1);
+        return;
+    }
+
     QString error;
     if (!m_processRunner->start(command.program,
                                 command.arguments,
                                 command.workingDirectory,
                                 &error)) {
         m_processError = error;
-        failTask(QStringLiteral("%1 无法启动: %2").arg(stageName(definition.stage), error), -1);
+        if (definition.stage == ReconstructionStage::ModelOptimization) {
+            completeWithRawMeshFallback(error, -1);
+        } else {
+            failTask(QStringLiteral("%1 无法启动: %2").arg(stageName(definition.stage), error), -1);
+        }
+    }
+}
+
+void ReconstructionController::beginVideoCrossMatching()
+{
+    // Complement contiguous neighbours with exponentially spaced pairs for
+    // videos that revisit the same side of the object later in the recording.
+    ReconstructionConfig crossConfig = m_config;
+    crossConfig.sequentialMatcherOverlap = 10;
+    crossConfig.sequentialQuadraticOverlap = true;
+    m_processPurpose = ProcessPurpose::VideoCrossMatching;
+    m_processError.clear();
+    const ProcessCommand command = m_backend->featureMatchingCommand(
+        m_backendRoot, m_jobPaths.root, crossConfig);
+    openLog(QStringLiteral("A2_cross_time_matching.log"), command);
+    emit logMessage(QStringLiteral("相邻帧匹配完成，正在补充视频跨时段匹配。"), false);
+    QString error;
+    if (!m_processRunner->start(command.program, command.arguments,
+                                command.workingDirectory, &error)) {
+        failTask(QStringLiteral("视频跨时段匹配无法启动：%1").arg(error), -1);
+    }
+}
+
+void ReconstructionController::beginVideoTransitiveMatching()
+{
+    ReconstructionConfig transitiveConfig = m_config;
+    transitiveConfig.useTransitiveMatcher = true;
+    m_processPurpose = ProcessPurpose::VideoTransitiveMatching;
+    m_processError.clear();
+    const ProcessCommand command = m_backend->featureMatchingCommand(
+        m_backendRoot, m_jobPaths.root, transitiveConfig);
+    openLog(QStringLiteral("A2_transitive_matching.log"), command);
+    emit logMessage(QStringLiteral("正在利用共同视角补全视频片段之间的连接。"), false);
+    QString error;
+    if (!m_processRunner->start(command.program, command.arguments,
+                                command.workingDirectory, &error)) {
+        failTask(QStringLiteral("视频片段连接无法启动：%1").arg(error), -1);
     }
 }
 
@@ -218,20 +455,40 @@ ProcessCommand ReconstructionController::commandForStage(ReconstructionStage sta
     case ReconstructionStage::FeatureMatching:
         return m_backend->featureMatchingCommand(m_backendRoot, m_jobPaths.root, m_config);
     case ReconstructionStage::SparseMapping:
-        return m_backend->sparseMappingCommand(m_backendRoot, m_jobPaths.root);
+        return m_backend->sparseMappingCommand(m_backendRoot, m_jobPaths.root, m_config);
     case ReconstructionStage::ImageUndistortion:
         return m_backend->undistortionCommand(m_backendRoot,
                                                m_jobPaths.root,
-                                               m_task.primaryModelRelativePath);
+                                               m_task.primaryModelRelativePath,
+                                               m_config.imageDirectory);
     case ReconstructionStage::DenseStereo:
         return m_backend->patchMatchCommand(m_backendRoot, m_jobPaths.root, m_config);
     case ReconstructionStage::StereoFusion:
         return m_backend->fusionCommand(m_backendRoot, m_jobPaths.root);
     case ReconstructionStage::Meshing:
         return m_backend->meshingCommand(m_backendRoot, m_jobPaths.root);
+    case ReconstructionStage::ModelOptimization:
+        return modelOptimizationCommand();
     default:
         return {};
     }
+}
+
+ProcessCommand ReconstructionController::modelOptimizationCommand() const
+{
+    QString program = QString::fromLocal8Bit(qgetenv("VISION3D_GEOMETRY_WORKER"));
+    if (program.trimmed().isEmpty()) {
+        program = QDir(QCoreApplication::applicationDirPath())
+                      .filePath(QStringLiteral("Vision3DGeometryWorker.exe"));
+    }
+    return {program,
+            {QStringLiteral("refine"),
+             QStringLiteral("--cloud"),
+             QDir(m_jobPaths.root).filePath(QStringLiteral("dense/fused.ply")),
+             QStringLiteral("--output"),
+             m_jobPaths.refinementDirectory},
+            m_jobPaths.root,
+            QStringLiteral("Open3D + meshoptimizer model refinement")};
 }
 
 void ReconstructionController::openLog(const QString& fileName, const ProcessCommand& command)
@@ -321,7 +578,7 @@ void ReconstructionController::onProcessFinished(int exitCode, QProcess::ExitSta
         }
         m_task.backendVersion = result.version;
         persistTask();
-        QTimer::singleShot(0, this, [this] { beginStage(0); });
+        QTimer::singleShot(0, this, [this] { beginStage(m_resumeStageIndex); });
         return;
     }
 
@@ -330,15 +587,36 @@ void ReconstructionController::onProcessFinished(int exitCode, QProcess::ExitSta
         const QString detail = !m_processError.isEmpty()
                                    ? m_processError
                                    : QStringLiteral("exit code=%1").arg(exitCode);
-        failTask(QStringLiteral("%1 失败：%2").arg(stageName(m_task.stage), detail), exitCode);
+        if (m_task.stage == ReconstructionStage::ModelOptimization) {
+            completeWithRawMeshFallback(detail, exitCode);
+        } else {
+            failTask(QStringLiteral("%1 失败：%2").arg(stageName(m_task.stage), detail), exitCode);
+        }
+        return;
+    }
+
+    if (m_processPurpose == ProcessPurpose::Stage
+        && m_task.stage == ReconstructionStage::FeatureMatching
+        && m_task.inputType == QStringLiteral("video")) {
+        QTimer::singleShot(0, this, &ReconstructionController::beginVideoCrossMatching);
+        return;
+    }
+
+    if (m_processPurpose == ProcessPurpose::VideoCrossMatching) {
+        QTimer::singleShot(0, this, &ReconstructionController::beginVideoTransitiveMatching);
         return;
     }
 
     QString artifactError;
     if (!validateStageArtifact(m_task.stage, &artifactError)) {
-        failTask(QStringLiteral("%1 artifact 校验失败：%2")
-                     .arg(stageName(m_task.stage), artifactError),
-                 exitCode);
+        if (m_task.stage == ReconstructionStage::ModelOptimization) {
+            completeWithRawMeshFallback(
+                QStringLiteral("artifact 校验失败: %1").arg(artifactError), exitCode);
+        } else {
+            failTask(QStringLiteral("%1 artifact 校验失败：%2")
+                         .arg(stageName(m_task.stage), artifactError),
+                     exitCode);
+        }
         return;
     }
     const int nextIndex = m_stageIndex + 1;
@@ -367,6 +645,21 @@ bool ReconstructionController::validateStageArtifact(ReconstructionStage stage, 
         m_task.meshRelativePath = QStringLiteral("dense/meshed-poisson.ply");
         return ReconstructionArtifactValidator::validateNonEmptyFile(
             QDir(m_jobPaths.root).filePath(m_task.meshRelativePath), error);
+    case ReconstructionStage::ModelOptimization: {
+        const QString open3dMesh = QDir(m_jobPaths.refinementDirectory)
+                                       .filePath(QStringLiteral("open3d-mesh.ply"));
+        const QString finalMesh = QDir(m_jobPaths.refinementDirectory)
+                                      .filePath(QStringLiteral("final-mesh.ply"));
+        const QString metadata = QDir(m_jobPaths.refinementDirectory)
+                                     .filePath(QStringLiteral("refinement.json"));
+        if (!ReconstructionArtifactValidator::validateNonEmptyFile(open3dMesh, error)
+            || !ReconstructionArtifactValidator::validateNonEmptyFile(finalMesh, error)
+            || !ReconstructionArtifactValidator::validateNonEmptyFile(metadata, error)) {
+            return false;
+        }
+        m_task.meshRelativePath = QStringLiteral("dense/refinement/final-mesh.ply");
+        return true;
+    }
     default:
         return true;
     }
@@ -383,11 +676,41 @@ bool ReconstructionController::selectPrimaryModel(QString* error)
         return false;
     }
     m_task.primaryModelRelativePath = selection.relativePath;
+    m_task.sparseModelCount = selection.modelCount;
     m_task.registeredImageCount = selection.registeredImages;
     m_task.registrationRatio = m_task.inputImageCount > 0
                                    ? static_cast<double>(m_task.registeredImageCount)
                                          / static_cast<double>(m_task.inputImageCount)
                                    : 0.0;
+    if (m_task.inputType == QStringLiteral("video")) {
+        if (selection.modelCount > 1) {
+            m_task.trajectoryWarnings.append(
+                QStringLiteral("检测到 %1 个不连通的 COLMAP sparse model；后续采用注册图像最多的 %2。")
+                    .arg(selection.modelCount)
+                    .arg(selection.relativePath));
+        }
+        const double sampleFps = m_reconstructionInput.durationSeconds > 0.0
+                                     ? static_cast<double>(m_reconstructionInput.targetFrames)
+                                           / m_reconstructionInput.durationSeconds
+                                     : 0.0;
+        const CameraTrajectoryResult trajectory = CameraTrajectoryValidator::inspect(
+            QDir(m_jobPaths.root).filePath(selection.relativePath), sampleFps, 3.0);
+        for (const QString& warning : trajectory.warnings) {
+            m_task.trajectoryWarnings.append(warning);
+        }
+        for (const QString& warning : m_task.trajectoryWarnings) {
+            emit logMessage(warning, true);
+        }
+        if (m_task.registrationRatio < 0.5) {
+            if (error != nullptr) {
+                *error = QStringLiteral("COLMAP 仅注册了 %1 / %2 帧（%3%）；注册率低于 50%，已停止后续稠密重建。")
+                             .arg(m_task.registeredImageCount)
+                             .arg(m_task.inputImageCount)
+                             .arg(m_task.registrationRatio * 100.0, 0, 'f', 1);
+            }
+            return false;
+        }
+    }
     return true;
 }
 
@@ -408,6 +731,41 @@ void ReconstructionController::failTask(const QString& message, int exitCode)
     emit logMessage(message, true);
     emit taskChanged();
     emit finished(false);
+}
+
+void ReconstructionController::completeWithRawMeshFallback(const QString& detail, int exitCode)
+{
+    closeLog();
+    const QString rawMeshRelativePath = QStringLiteral("dense/meshed-poisson.ply");
+    QString rawMeshError;
+    if (!ReconstructionArtifactValidator::validateNonEmptyFile(
+            QDir(m_jobPaths.root).filePath(rawMeshRelativePath), &rawMeshError)) {
+        failTask(QStringLiteral("Model Optimization Failed，且 Raw Mesh fallback 不可用: %1 (%2)")
+                     .arg(detail, rawMeshError),
+                 exitCode);
+        return;
+    }
+
+    m_processPurpose = ProcessPurpose::None;
+    m_task.state = ReconstructionState::Completed;
+    m_task.stage = ReconstructionStage::Completed;
+    m_task.meshRelativePath = rawMeshRelativePath;
+    m_task.errorMessage = QStringLiteral("Model Optimization Failed / Using Raw Mesh: %1")
+                              .arg(detail);
+    m_task.failedStage = stageName(ReconstructionStage::ModelOptimization);
+    m_task.exitCode = exitCode;
+    m_task.finishedAt = QDateTime::currentDateTimeUtc();
+    m_task.totalElapsedMilliseconds = m_totalTimer.isValid() ? m_totalTimer.elapsed() : -1;
+    QString persistError;
+    if (!persistTask(&persistError) && !persistError.isEmpty()) {
+        emit logMessage(QStringLiteral("回退状态持久化失败: %1").arg(persistError), true);
+    }
+    emit logMessage(QStringLiteral("Model Optimization Failed / Using Raw Mesh"), false);
+    if (!detail.isEmpty()) {
+        emit logMessage(detail, true);
+    }
+    emit taskChanged();
+    emit finished(true);
 }
 
 void ReconstructionController::cancelTask()
@@ -433,7 +791,7 @@ void ReconstructionController::completeTask()
     m_task.finishedAt = QDateTime::currentDateTimeUtc();
     m_task.totalElapsedMilliseconds = m_totalTimer.isValid() ? m_totalTimer.elapsed() : -1;
     persistTask();
-    emit logMessage(QStringLiteral("A1-A7 Reconstruction Pipeline 已完成。"), false);
+    emit logMessage(QStringLiteral("A1-A8 Reconstruction Pipeline 已完成。"), false);
     emit taskChanged();
     emit finished(true);
 }
@@ -481,8 +839,10 @@ int ReconstructionController::completedStageCount(ReconstructionStage stage)
     case ReconstructionStage::StereoFusion:
         return 6;
     case ReconstructionStage::Meshing:
+    case ReconstructionStage::ModelOptimization:
+        return 7;
     case ReconstructionStage::Completed:
-        return stage == ReconstructionStage::Completed ? 7 : 6;
+        return 8;
     }
     return 0;
 }
@@ -534,6 +894,8 @@ QString ReconstructionController::stageName(ReconstructionStage stage)
         return QStringLiteral("A6 Stereo Fusion");
     case ReconstructionStage::Meshing:
         return QStringLiteral("A7 Poisson Meshing");
+    case ReconstructionStage::ModelOptimization:
+        return QStringLiteral("A8 Model Optimization");
     case ReconstructionStage::Completed:
         return QStringLiteral("Completed");
     }

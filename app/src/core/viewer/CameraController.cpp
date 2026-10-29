@@ -16,7 +16,8 @@ constexpr float kMinimumRadius = 1.0e-6f;
 constexpr float kMinimumDistanceFloor = 1.0e-7f;
 constexpr float kOrbitRadiansPerLogicalPixel = 0.008f;
 constexpr float kZoomLogScalePerWheelStep = 0.2f;
-constexpr float kPitchLimitDegrees = 89.5f;
+constexpr float kPitchLimitDegrees = 85.0f;
+constexpr float kIsometricPitchDegrees = 35.2643897f;
 constexpr float kClipNearRadiusScale = 0.001f;
 constexpr float kClipNearDistanceScale = 0.001f;
 constexpr float kClipFarRadiusScale = 3.0f;
@@ -128,14 +129,86 @@ void CameraController::setViewportSize(int width, int height)
     }
 }
 
+void CameraController::setOrbitSensitivity(float sensitivity)
+{
+    if (!isFiniteScalar(sensitivity)) {
+        m_orbitSensitivity = 1.0f;
+        return;
+    }
+    m_orbitSensitivity = std::clamp(sensitivity, 0.5f, 2.0f);
+}
+
+void CameraController::setFrontView()
+{
+    setPresetView(0.0f, 0.0f);
+}
+
+void CameraController::setBackView()
+{
+    setPresetView(kPi, 0.0f);
+}
+
+void CameraController::setLeftView()
+{
+    setPresetView(-kHalfPi, 0.0f);
+}
+
+void CameraController::setRightView()
+{
+    setPresetView(kHalfPi, 0.0f);
+}
+
+void CameraController::setTopView()
+{
+    setPresetView(0.0f, pitchLimitRadians());
+}
+
+void CameraController::setBottomView()
+{
+    setPresetView(0.0f, -pitchLimitRadians());
+}
+
+void CameraController::setIsometricView()
+{
+    setPresetView(
+        0.25f * kPi,
+        kIsometricPitchDegrees * kPi / 180.0f);
+}
+
+void CameraController::setPresetView(float yawRadians, float pitchRadians)
+{
+    if (!m_hasBounds) {
+        return;
+    }
+
+    m_target = m_fitTarget;
+    m_yawRadians = yawRadians;
+    m_pitchRadians = std::clamp(
+        pitchRadians,
+        -pitchLimitRadians(),
+        pitchLimitRadians());
+    const float candidateDistance = isFiniteScalar(m_distance) && m_distance > 0.0f
+        ? m_distance
+        : m_fitDistance;
+    m_distance = std::clamp(
+        candidateDistance,
+        m_minimumDistance,
+        m_maximumDistance);
+    if (!isFiniteScalar(m_distance) || m_distance <= 0.0f) {
+        m_distance = m_fitDistance;
+    }
+    updateClipPlanes();
+}
+
 void CameraController::orbit(float deltaX, float deltaY)
 {
     if (!m_hasBounds || !isFiniteScalar(deltaX) || !isFiniteScalar(deltaY)) {
         return;
     }
 
-    m_yawRadians += deltaX * kOrbitRadiansPerLogicalPixel;
-    m_pitchRadians -= deltaY * kOrbitRadiansPerLogicalPixel;
+    const float scale = kOrbitRadiansPerLogicalPixel * m_orbitSensitivity;
+    m_yawRadians += deltaX * scale;
+    m_pitchRadians -= deltaY * scale;
     if (!isFiniteScalar(m_yawRadians) || !isFiniteScalar(m_pitchRadians)) {
         m_yawRadians = 0.0f;
         m_pitchRadians = 0.0f;
@@ -347,6 +420,11 @@ float CameraController::maximumDistance() const
 float CameraController::pitchLimitRadians() const
 {
     return kPitchLimitDegrees * kPi / 180.0f;
+}
+
+float CameraController::orbitSensitivity() const
+{
+    return m_orbitSensitivity;
 }
 
 QMatrix4x4 CameraController::viewMatrix() const
